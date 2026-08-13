@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+
+{% block page_title %}Settings · {{ title }}{% endblock %}
+{% block subtitle %}<span class="rate-note">Settings</span>{% endblock %}
+{% block topnav %}<a class="toplink" href="/">← Back to log</a>{% endblock %}
+{% block footlinks %}<a href="/export.csv">Export CSV</a>{% endblock %}
+
+{% block styles %}
+  .row2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; align-items:end; }
+  .orgcard { border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin-bottom:9px;
+             background:var(--surface-0); }
+  .orghead { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .orghead .nm { font-weight:700; font-size:15px; }
+  .orghead .spacer { flex:1; }
+  .editor { margin-top:12px; padding-top:12px; border-top:1px dashed var(--line); }
+  .grid-types { display:grid; grid-template-columns:1fr 1fr auto auto; gap:7px; align-items:center; }
+  .grid-types .hd, .grid-periods .hd { font-size:10px; font-weight:700; letter-spacing:.06em;
+             text-transform:uppercase; color:var(--text-muted); }
+  .grid-periods { display:grid; gap:7px; align-items:center; }
+  .mini { padding:5px 7px; font-size:13px; }
+  .x { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:17px;
+       line-height:1; padding:2px 6px; }
+  .x:hover { color:var(--danger); }
+  .addbtn { margin-top:7px; }
+  .hint { font-size:11.5px; color:var(--text-muted); margin:5px 0 9px; }
+  .actions { display:flex; gap:8px; margin-top:13px; flex-wrap:wrap; align-items:center; }
+  details.dz { margin-top:9px; }
+  details.dz summary { cursor:pointer; font-size:12px; color:var(--text-muted); }
+  .subhead { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+             color:var(--text-secondary); margin:13px 0 5px; }
+{% endblock %}
+
+{% block content %}
+
+<section class="card">
+  <h2>General</h2>
+  <form method="post" action="/settings/general" class="row2">
+    <div><label for="ti">App name</label>
+      <input id="ti" type="text" name="title" value="{{ title }}" maxlength="60" required>
+      <div class="hint">Shown in the header and browser tab.</div></div>
+    <div><label for="tx">Tax reserve %</label>
+      <input id="tx" type="number" name="tax_pct" value="{{ '%g'|format(tax_pct) }}"
+             min="0" max="90" step="1">
+      <div class="hint">Share of gross to set aside for 1099 taxes.</div></div>
+    <div><button class="primary" type="submit">Save</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Review organizations</h2>
+  <div id="orgs"></div>
+  <button class="ghost addbtn" type="button" onclick="addOrg()">+ Add organization</button>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ORGS = {{ orgs | tojson }};
+const ENTRY_COUNTS = {{ entry_counts | tojson }};
+const CASE_COUNTS = {{ case_counts | tojson }};
+const MONTHS = {{ months | tojson }};
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// live editing model, keyed the same as ORGS plus temporary "new" keys
+const model = {};
+for (const [k, v] of Object.entries(ORGS)) model[k] = structuredClone(v);
+
+function blankOrg() {
+  return { label:'', payment_lag_months:0, annual_cap:0, fiscal_year_start_month:1,
+           case_types:{ review:{label:'Case Review', basis:'case'} },
+           rate_periods:[{ start:`${new Date().getFullYear()}-01-01`,
+                           end:`${new Date().getFullYear()}-12-31`,
+                           case_rates:{}, hourly:0 }] };
+}
+
+function addOrg() {
+  const k = '__new' + Date.now();
+  model[k] = blankOrg();
+  render(k);
+}
+
+function typesArray(cfg) {
+  return Object.entries(cfg.case_types || {}).map(([key, v]) =>
+    ({ key, label: v.label || '', basis: v.basis || 'hour' }));
+}
+
+function render(openKey) {
+  const host = document.getElementById('orgs');
+  host.innerHTML = '';
+  for (const [key, cfg] of Object.entries(model)) {
+    const isNew = key.startsWith('__new');
+    const entries = ENTRY_COUNTS[key] || 0;
+    const cases = CASE_COUNTS[key] || 0;
+    const open = key === openKey;
+
+    const card = document.createElement('div');
+    card.className = 'orgcard';
+    card.innerHTML = `
+      <div class="orghead">
+        <span class="nm">${esc(cfg.label) || (isNew ? 'New organization' : key)}</span>
+        ${entries ? `<span class="pill">${cases} case${cases==1?'':'s'} logged</span>` : ''}
+        ${isNew ? '<span class="pill">unsaved</span>' : ''}
+        <span class="spacer"></span>
+        <button class="ghost" type="button" data-act="toggle">${open ? 'Close' : 'Edit'}</button>
+      </div>
+      <div class="editor" ${open ? '' : 'hidden'}></div>`;
+
+    card.querySelector('[data-act="toggle"]').onclick = () => render(open ? null : key);
+    if (open) card.querySelector('.editor').appendChild(editor(key, cfg, isNew, entries));
+    host.appendChild(card);
+  }
+}
+
+function editor(key, cfg, isNew, entries) {
+  const wrap = document.createElement('div');
+
+  const basics = document.createElement('div');
+  basics.className = 'row2';
+  basics.innerHTML = `
+    <div><label>Organization name</label>
+      <input class="f-label" type="text" value="${esc(cfg.label)}" placeholder="e.g. Commence Health"></div>
+    <div><label>Payment lag (months)</label>
+      <input class="f-lag" type="number" min="0" max="12" step="1" value="${cfg.payment_lag_months ?? 0}">
+      <div class="hint">Work in August paid in October = 2</div></div>
+    <div><label>Contract year starts</label>
+      <select class="f-fy">${MONTHS.map((m,i)=>
+        `<option value="${i+1}" ${((cfg.fiscal_year_start_month??1)==i+1)?'selected':''}>${m}</option>`).join('')}</select></div>
+    <div><label>Annual cap ($)</label>
+      <input class="f-cap" type="number" min="0" step="1000" value="${cfg.annual_cap || 0}">
+      <div class="hint">0 hides the cap meter</div></div>`;
+  wrap.appendChild(basics);
+
+  // ---- case types
+  const th = document.createElement('div');
+  th.className = 'subhead'; th.textContent = 'Case types';
+  wrap.appendChild(th);
+  const tg = document.createElement('div');
+  tg.className = 'grid-types';
+  wrap.appendChild(tg);
+  const tAdd = document.createElement('button');
+  tAdd.className = 'ghost addbtn'; tAdd.type = 'button'; tAdd.textContent = '+ Add case type';
+  wrap.appendChild(tAdd);
+
+  // ---- rate periods
+  const ph = document.createElement('div');
+  ph.className = 'subhead'; ph.textContent = 'Rate periods';
+  wrap.appendChild(ph);
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = 'Pay uses the period containing the work date, so past entries stay correct after a rate change.';
+  wrap.appendChild(hint);
+  const pg = document.createElement('div');
+  pg.className = 'grid-periods';
+  wrap.appendChild(pg);
+  const pAdd = document.createElement('button');
+  pAdd.className = 'ghost addbtn'; pAdd.type = 'button'; pAdd.textContent = '+ Add rate period';
+  wrap.appendChild(pAdd);
+
+  let types = typesArray(cfg);
+  let periods = structuredClone(cfg.rate_periods || []);
+
+  function drawTypes() {
+    tg.innerHTML = `<div class="hd">Key</div><div class="hd">Label</div>
+                    <div class="hd">Paid by</div><div class="hd"></div>`;
+    types.forEach((t, i) => {
+      const k = document.createElement('input');
+      k.className = 'mini'; k.value = t.key; k.placeholder = 'appeals';
+      k.oninput = () => { t.key = k.value.toLowerCase().replace(/[^a-z0-9]/g, ''); drawPeriods(); };
+      const l = document.createElement('input');
+      l.className = 'mini'; l.value = t.label; l.placeholder = 'Appeals';
+      l.oninput = () => { t.label = l.value; };
+      const b = document.createElement('select');
+      b.className = 'mini';
+      b.innerHTML = `<option value="case">Per case</option><option value="hour">Hourly</option>`;
+      b.value = t.basis;
+      b.onchange = () => { t.basis = b.value; drawPeriods(); };
+      const x = document.createElement('button');
+      x.className = 'x'; x.type = 'button'; x.textContent = '×'; x.title = 'Remove';
+      x.onclick = () => { types.splice(i, 1); drawTypes(); drawPeriods(); };
+      tg.append(k, l, b, x);
+    });
+  }
+
+  function drawPeriods() {
+    const caseTypes = types.filter(t => t.basis === 'case' && t.key);
+    pg.style.gridTemplateColumns = `1fr 1fr ${'1fr '.repeat(caseTypes.length)}1fr auto`;
+    pg.innerHTML = `<div class="hd">Start</div><div class="hd">End</div>` +
+      caseTypes.map(t => `<div class="hd">$/${esc(t.key)}</div>`).join('') +
+      `<div class="hd">$/hour</div><div class="hd"></div>`;
+    periods.forEach((p, i) => {
+      const s = document.createElement('input');
+      s.className = 'mini'; s.type = 'date'; s.value = p.start || '';
+      s.oninput = () => { p.start = s.value; };
+      const e = document.createElement('input');
+      e.className = 'mini'; e.type = 'date'; e.value = p.end || '';
+      e.oninput = () => { p.end = e.value; };
+      pg.append(s, e);
+      p.case_rates = p.case_rates || {};
+      caseTypes.forEach(t => {
+        const r = document.createElement('input');
+        r.className = 'mini'; r.type = 'number'; r.min = '0'; r.step = '0.01';
+        r.value = p.case_rates[t.key] ?? '';
+        r.oninput = () => { p.case_rates[t.key] = r.value; };
+        pg.append(r);
+      });
+      const h = document.createElement('input');
+      h.className = 'mini'; h.type = 'number'; h.min = '0'; h.step = '0.01';
+      h.value = p.hourly ?? '';
+      h.oninput = () => { p.hourly = h.value; };
+      const x = document.createElement('button');
+      x.className = 'x'; x.type = 'button'; x.textContent = '×'; x.title = 'Remove';
+      x.onclick = () => { periods.splice(i, 1); drawPeriods(); };
+      pg.append(h, x);
+    });
+  }
+
+  tAdd.onclick = () => { types.push({ key:'', label:'', basis:'case' }); drawTypes(); drawPeriods(); };
+  pAdd.onclick = () => {
+    const last = periods[periods.length - 1];
+    const y = new Date().getFullYear();
+    periods.push({ start: last ? last.end : `${y}-01-01`, end: `${y}-12-31`,
+                   case_rates: {}, hourly: last ? last.hourly : 0 });
+    drawPeriods();
+  };
+
+  drawTypes(); drawPeriods();
+
+  // ---- actions
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const save = document.createElement('button');
+  save.className = 'primary'; save.type = 'button'; save.textContent = 'Save organization';
+  save.onclick = () => {
+    const payload = {
+      label: basics.querySelector('.f-label').value,
+      payment_lag_months: basics.querySelector('.f-lag').value,
+      annual_cap: basics.querySelector('.f-cap').value,
+      fiscal_year_start_month: basics.querySelector('.f-fy').value,
+      case_types: types, rate_periods: periods,
+    };
+    const f = document.createElement('form');
+    f.method = 'post'; f.action = '/settings/org';
+    f.innerHTML = `<input type="hidden" name="key" value="${isNew ? '' : esc(key)}">
+                   <input type="hidden" name="payload">`;
+    f.querySelector('[name=payload]').value = JSON.stringify(payload);
+    document.body.appendChild(f); f.submit();
+  };
+  actions.appendChild(save);
+
+  if (!isNew) {
+    const del = document.createElement('form');
+    del.method = 'post'; del.action = `/settings/org/${encodeURIComponent(key)}/delete`;
+    del.style.display = 'inline';
+    del.innerHTML = `<button class="danger" type="submit">Delete</button>`;
+    del.onsubmit = () => confirm(entries
+      ? `Delete this organization? Its ${entries} logged entr${entries==1?'y':'ies'} will be kept but shown unpriced. Use "delete with entries" below to remove them too.`
+      : 'Delete this organization?');
+    actions.appendChild(del);
+
+    if (entries) {
+      const dz = document.createElement('details');
+      dz.className = 'dz';
+      dz.innerHTML = `<summary>Danger zone</summary>
+        <form method="post" action="/settings/org/${encodeURIComponent(key)}/delete" style="margin-top:7px">
+          <input type="hidden" name="purge" value="yes">
+          <button class="danger" type="submit">Delete organization and its ${entries} entr${entries==1?'y':'ies'}</button>
+        </form>`;
+      dz.querySelector('form').onsubmit = () =>
+        confirm('This permanently deletes the organization AND all of its logged entries. Continue?');
+      wrap.appendChild(actions);
+      wrap.appendChild(dz);
+      return wrap;
+    }
+  }
+  wrap.appendChild(actions);
+  return wrap;
+}
+
+render(Object.keys(model).length === 1 ? Object.keys(model)[0] : null);
+</script>
+{% endblock %}

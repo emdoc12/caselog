@@ -1,0 +1,13 @@
+services:
+  caselog:
+    build: .
+    image: caselog:latest
+    container_name: caselog
+    restart: unless-stopped
+    ports:
+      - "8321:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      - TZ=America/New_York
+      - CASELOG_TAX_PCT=30

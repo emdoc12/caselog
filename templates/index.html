@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block subtitle %}
+<span class="rate-note">{{ ref_label }} —
+  {% for k, v in case_rates.items() %}${{ '%.0f'|format(v) }}/{{ k }} · {% endfor %}
+  ${{ '%.2f'|format(hourly) }}/hr</span>
+{% endblock %}
+
+{% block styles %}
+  form.add { display:grid; grid-template-columns:auto auto auto auto auto 1fr auto; gap:10px; align-items:end; }
+  @media (max-width:900px){ form.add { grid-template-columns:1fr 1fr; } }
+  .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .dow { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+         color:var(--text-muted); text-align:center; padding-bottom:2px; }
+  .day { aspect-ratio:1/.52; min-height:52px; border:1px solid var(--line); border-radius:7px;
+         padding:4px 6px; background:var(--surface-1); position:relative; }
+  .day.out { opacity:.3; }
+  .day.today { outline:2px solid var(--accent); outline-offset:-2px; }
+  .day .n { font-size:11px; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+  .day .c { position:absolute; left:6px; bottom:4px; font-size:15px; font-weight:700;
+            font-variant-numeric:tabular-nums; }
+  .day .mins { position:absolute; right:6px; bottom:5px; font-size:10px; color:var(--text-secondary); }
+  .l1 { background:var(--s100); } .l2 { background:var(--s250); }
+  .l3 { background:var(--s400); } .l4 { background:var(--s500); } .l5 { background:var(--s650); }
+  .l3 .n,.l4 .n,.l5 .n,.l3 .c,.l4 .c,.l5 .c,.l3 .mins,.l4 .mins,.l5 .mins { color:#fff; }
+  .legend { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted);
+            margin-top:8px; justify-content:flex-end; }
+  .sw { width:15px; height:11px; border-radius:3px; border:1px solid var(--line); }
+  .navbar { display:flex; align-items:center; justify-content:space-between; gap:10px;
+            margin-bottom:10px; flex-wrap:wrap; }
+  .navbar a, .chip { color:var(--accent); text-decoration:none; font-weight:600; font-size:12.5px;
+            padding:5px 11px; border:1px solid var(--line); border-radius:7px; background:var(--surface-1); }
+  .navbar a:hover, .chip:hover { border-color:var(--accent); }
+  .chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .navbar .mo { font-size:16px; font-weight:700; color:var(--text-primary); }
+  .orgbar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  .del { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:2px 5px; font-size:15px; }
+  .del:hover { color:var(--danger); }
+{% endblock %}
+
+{% block content %}
+
+{% if orgs|length > 1 %}
+<div class="orgbar">
+  <a class="chip {{ 'on' if org_filter == 'all' }}" href="/?m={{ ym }}&org=all">All</a>
+  {% for k, v in orgs.items() %}
+    <a class="chip {{ 'on' if org_filter == k }}" href="/?m={{ ym }}&org={{ k }}">{{ v.label }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<section class="card">
+  <h2>Log work</h2>
+  <form class="add" method="post" action="/add?org={{ org_filter }}">
+    <div><label for="d">Date</label>
+      <input id="d" type="date" name="work_date" value="{{ today }}" required></div>
+    <div><label for="o">Organization</label>
+      <select id="o" name="org" onchange="syncTypes()">
+        {% for k, v in orgs.items() %}
+        <option value="{{ k }}" {{ 'selected' if k == default_org }}>{{ v.label }}</option>
+        {% endfor %}
+      </select></div>
+    <div><label for="t">Type</label><select id="t" name="case_type"></select></div>
+    <div><label for="q">Cases</label>
+      <input id="q" type="number" name="qty" value="1" min="1" step="1" style="width:78px"></div>
+    <div><label for="mi">Minutes</label>
+      <input id="mi" type="number" name="minutes" min="1" step="1" style="width:98px"
+             placeholder="total" required></div>
+    <div><label for="n">Notes (no PHI)</label>
+      <input id="n" type="text" name="notes" maxlength="280" placeholder="optional"></div>
+    <div><button class="primary" type="submit">Add</button></div>
+  </form>
+  <div class="warn">Minutes = total time for every case in this entry. Never enter patient
+    identifiers, case numbers, or clinical detail.</div>
+</section>
+
+<div class="navbar">
+  <a href="/?m={{ prev_m }}&org={{ org_filter }}">← Prev</a>
+  <span class="mo">{{ month_label }}</span>
+  <a href="/?m={{ next_m }}&org={{ org_filter }}">Next →</a>
+</div>
+
+<section class="tiles">
+  <div class="tile"><div class="k">Cases</div><div class="v">{{ m.cases }}</div>
+    <div class="s">over {{ m.days }} day{{ '' if m.days == 1 else 's' }}</div></div>
+  <div class="tile"><div class="k">Time</div><div class="v">{{ '%.1f'|format(m.hours) }}h</div>
+    <div class="s">{{ '%.0f'|format(m.min_per_case) }} min / case avg</div></div>
+  <div class="tile"><div class="k">Gross</div><div class="v">${{ '%.0f'|format(m.pay) }}</div>
+    <div class="s">paid ~{{ pay_month }}</div></div>
+  <div class="tile hero"><div class="k">True hourly</div>
+    <div class="v">${{ '%.0f'|format(m.eff_rate) }}</div>
+    <div class="s">effective, this month</div></div>
+  <div class="tile"><div class="k">Set aside ({{ tax_pct|int }}%)</div>
+    <div class="v">${{ '%.0f'|format(m.tax) }}</div>
+    <div class="s">net ≈ ${{ '%.0f'|format(m.net) }}</div></div>
+</section>
+
+<section class="card">
+  <h2>{{ month_label }}</h2>
+  <div class="cal">
+    {% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}<div class="dow">{{ d }}</div>{% endfor %}
+    {% for week in weeks %}{% for c in week %}
+      <div class="day {{ 'out' if not c.in_month }} {{ 'today' if c.today }} {{ 'l%d'|format(c.level) if c.level }}">
+        <div class="n">{{ c.day }}</div>
+        {% if c.count %}<div class="c">{{ c.count }}</div>
+          <div class="mins">{{ '%.0f'|format(c.minutes) }}m</div>{% endif %}
+      </div>
+    {% endfor %}{% endfor %}
+  </div>
+  <div class="legend"><span>fewer</span>
+    <span class="sw" style="background:var(--s100)"></span>
+    <span class="sw" style="background:var(--s250)"></span>
+    <span class="sw" style="background:var(--s400)"></span>
+    <span class="sw" style="background:var(--s500)"></span>
+    <span class="sw" style="background:var(--s650)"></span><span>more cases</span></div>
+</section>
+
+{% if org_rows|length > 1 %}
+<section class="card">
+  <h2>By organization — {{ month_label }}</h2>
+  <table>
+    <tr><th>Organization</th><th class="num">Cases</th><th class="num">Hours</th>
+        <th class="num">Min/case</th><th class="num">Gross</th><th class="num">True $/hr</th></tr>
+    {% for o in org_rows %}
+    <tr><td>{{ o.label }}</td><td class="num">{{ o.cases }}</td>
+      <td class="num">{{ '%.1f'|format(o.hours) }}</td>
+      <td class="num">{{ '%.0f'|format(o.min_per_case) }}</td>
+      <td class="num">${{ '%.2f'|format(o.pay) }}</td>
+      <td class="num"><b>${{ '%.0f'|format(o.eff_rate) }}</b></td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+{% if breakdown %}
+<section class="card">
+  <h2>By case type — {{ month_label }}</h2>
+  <table>
+    <tr><th>Type</th>{% if org_filter == 'all' %}<th>Org</th>{% endif %}
+        <th class="num">Cases</th><th class="num">Hours</th><th class="num">Min/case</th>
+        <th class="num">Gross</th><th class="num">True $/hr</th></tr>
+    {% for b in breakdown %}
+    <tr>
+      <td>{{ b.label }} <span class="pill">{{ 'per case' if b.basis == 'case' else 'hourly' }}</span></td>
+      {% if org_filter == 'all' %}<td class="note">{{ b.org_label }}</td>{% endif %}
+      <td class="num">{{ b.cases }}</td><td class="num">{{ '%.1f'|format(b.hours) }}</td>
+      <td class="num">{{ '%.0f'|format(b.min_per_case) }}</td>
+      <td class="num">${{ '%.2f'|format(b.pay) }}</td>
+      <td class="num"><b>${{ '%.0f'|format(b.eff_rate) }}</b></td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Entries</h2>
+  {% if rows %}
+  <table>
+    <tr><th>Date</th>{% if org_filter == 'all' %}<th>Org</th>{% endif %}<th>Type</th>
+        <th class="num">Cases</th><th class="num">Min</th><th class="num">Min/case</th>
+        <th class="num">Gross</th><th class="num">$/hr</th><th>Notes</th><th></th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.work_date[5:] }}</td>
+      {% if org_filter == 'all' %}<td class="note">{{ r.org_label }}</td>{% endif %}
+      <td>{{ r.label }}</td>
+      <td class="num">{{ r.qty }}</td>
+      <td class="num">{{ '%.0f'|format(r.minutes) }}</td>
+      <td class="num">{{ '%.0f'|format(r.min_per_case) }}</td>
+      <td class="num">${{ '%.2f'|format(r.pay) }}</td>
+      <td class="num">${{ '%.0f'|format(r.eff_rate) }}</td>
+      <td class="note">{{ r.notes }}</td>
+      <td style="text-align:right">
+        <form method="post" action="/delete/{{ r.id }}?org={{ org_filter }}" style="display:inline"
+              onsubmit="return confirm('Delete this entry?')">
+          <button class="del" title="Delete">×</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<div class="empty">No entries for {{ month_label }} yet.</div>{% endif %}
+</section>
+
+<section class="tiles">
+  {% if cy %}
+  <div class="tile"><div class="k">Contract yr {{ cy.label }}</div>
+    <div class="v">${{ '%.0f'|format(cy.pay) }}</div>
+    <div class="s">{{ cy.cases }} cases · {{ '%.0f'|format(cy.hours) }}h{% if cy.cap %} ·
+      cap ${{ '{:,.0f}'.format(cy.cap) }}{% endif %}</div>
+    {% if cy.cap %}<div class="bar"><i style="width:{{ [cy.pay / cy.cap * 100, 100]|min }}%"></i></div>{% endif %}
+  </div>
+  {% endif %}
+  <div class="tile"><div class="k">All time{{ '' if org_filter == 'all' else ' — this org' }}</div>
+    <div class="v">{{ alltime.cases }}</div>
+    <div class="s">cases · {{ '%.0f'|format(alltime.hours) }}h · ${{ '%.0f'|format(alltime.pay) }}</div></div>
+  <div class="tile"><div class="k">All-time true hourly</div>
+    <div class="v">${{ '%.0f'|format(alltime.eff_rate) }}</div>
+    <div class="s">{{ '%.0f'|format(alltime.min_per_case) }} min / case avg</div></div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const ORGS = {{ orgs | tojson }};
+  function syncTypes() {
+    const sel = document.getElementById('t');
+    const prev = sel.value;
+    sel.innerHTML = '';
+    const types = (ORGS[document.getElementById('o').value] || {}).case_types || {};
+    for (const [k, v] of Object.entries(types)) {
+      const o = document.createElement('option');
+      o.value = k; o.textContent = v.label || k;
+      sel.appendChild(o);
+    }
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  }
+  syncTypes();
+</script>
+{% endblock %}

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block page_title %}{{ title }}{% endblock %}</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/favicon.svg">
+<meta name="apple-mobile-web-app-title" content="{{ title }}">
+<meta name="theme-color" content="#2a78d6">
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0:#f2f2f0; --surface-1:#fcfcfb; --surface-2:#e9e9e5;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#7a7975;
+    --line:#dedcd6;
+    --accent:#2a78d6; --accent-ink:#1c5cab; --danger:#e34948; --good:#1baf7a;
+    --s100:#cde2fb; --s250:#86b6ef; --s400:#3987e5; --s500:#256abf; --s650:#104281;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-0:#141413; --surface-1:#1a1a19; --surface-2:#242422;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8f8e86;
+      --line:#33332f;
+      --accent:#3987e5; --accent-ink:#86b6ef; --danger:#e66767; --good:#199e70;
+      --s100:#153252; --s250:#184f95; --s400:#256abf; --s500:#3987e5; --s650:#86b6ef;
+    }
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,'Segoe UI',Roboto,sans-serif; background:var(--surface-0);
+         color:var(--text-primary); font-size:14px; line-height:1.45; padding:18px; }
+  .wrap { max-width:1180px; margin:0 auto; }
+  a { color:var(--accent); }
+
+  .topbar { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  h1 { font-size:19px; font-weight:700; letter-spacing:-.01em; }
+  h1 a { color:inherit; text-decoration:none; }
+  .rate-note { font-size:12px; color:var(--text-muted); }
+  .spacer { flex:1; }
+  .toplink { font-size:12.5px; font-weight:600; text-decoration:none; padding:5px 11px;
+             border:1px solid var(--line); border-radius:7px; background:var(--surface-1); }
+  .toplink:hover { border-color:var(--accent); }
+
+  .card { background:var(--surface-1); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  section { margin-bottom:14px; }
+  h2 { font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+       color:var(--text-secondary); margin-bottom:8px; display:flex; align-items:center; gap:10px; }
+  h2::after { content:""; flex:1; border-top:1px solid var(--line); }
+
+  label { display:block; font-size:11px; font-weight:600; text-transform:uppercase;
+          letter-spacing:.05em; color:var(--text-muted); margin-bottom:3px; }
+  input, select, button, textarea { font:inherit; padding:7px 9px; border-radius:7px;
+          border:1px solid var(--line); background:var(--surface-0); color:var(--text-primary); }
+  input:focus, select:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600;
+                   cursor:pointer; padding:8px 20px; }
+  button.primary:hover { background:var(--accent-ink); }
+  button.ghost { cursor:pointer; font-weight:600; font-size:12.5px; padding:6px 12px;
+                 background:var(--surface-1); }
+  button.ghost:hover { border-color:var(--accent); color:var(--accent); }
+  button.danger { cursor:pointer; font-weight:600; font-size:12.5px; padding:6px 12px;
+                  background:var(--surface-1); color:var(--danger); border-color:var(--line); }
+  button.danger:hover { border-color:var(--danger); }
+  .warn { font-size:11px; color:var(--text-muted); margin-top:8px; }
+
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:10px; }
+  .tile { background:var(--surface-1); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .tile .k { font-size:10.5px; font-weight:600; letter-spacing:.07em; text-transform:uppercase;
+             color:var(--text-muted); }
+  .tile .v { font-size:25px; font-weight:700; letter-spacing:-.02em; margin-top:3px;
+             font-variant-numeric:tabular-nums; }
+  .tile .s { font-size:11.5px; color:var(--text-secondary); margin-top:1px; }
+  .tile.hero .v { color:var(--accent); }
+  .bar { height:5px; border-radius:3px; background:var(--surface-2); overflow:hidden; margin-top:7px; }
+  .bar > i { display:block; height:100%; background:var(--accent); border-radius:3px; }
+
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+       color:var(--text-muted); padding:0 8px 6px 0; border-bottom:1px solid var(--line); white-space:nowrap; }
+  td { padding:7px 8px 7px 0; border-bottom:1px solid var(--line); vertical-align:top; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; padding-right:14px; }
+  tr:last-child td { border-bottom:none; }
+  .pill { display:inline-block; font-size:10.5px; font-weight:600; padding:1.5px 8px; border-radius:20px;
+          background:var(--surface-2); color:var(--text-secondary); white-space:nowrap; }
+  .note { color:var(--text-muted); font-size:12px; }
+  .empty { color:var(--text-muted); text-align:center; padding:24px 0; font-size:13px; }
+
+  .flash { padding:9px 13px; border-radius:8px; font-size:13px; margin-bottom:12px;
+           border:1px solid var(--line); background:var(--surface-1); }
+  .flash.ok { border-color:var(--good); }
+  .flash.error { border-color:var(--danger); color:var(--danger); }
+
+  .foot { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;
+          font-size:12px; color:var(--text-muted); margin-top:6px; padding-top:10px;
+          border-top:1px solid var(--line); }
+  .foot a { color:var(--accent); }
+  {% block styles %}{% endblock %}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <h1><a href="/">{{ title }}</a></h1>
+    {% block subtitle %}{% endblock %}
+    <span class="spacer"></span>
+    {% block topnav %}<a class="toplink" href="/settings">Settings</a>{% endblock %}
+  </div>
+
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in msgs %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+
+  <div class="foot">
+    <span>{{ title }} v{{ version }} · contains no PHI · data stored locally</span>
+    <span>{% block footlinks %}<a href="/export.csv">Export CSV</a>{% endblock %}</span>
+  </div>
+
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>
