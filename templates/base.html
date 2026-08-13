@@ -28,10 +28,14 @@
     }
   }
   * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { max-width:100%; overflow-x:hidden; }
   body { font-family:-apple-system,'Segoe UI',Roboto,sans-serif; background:var(--surface-0);
-         color:var(--text-primary); font-size:14px; line-height:1.45; padding:18px; }
+         color:var(--text-primary); font-size:14px; line-height:1.45; padding:18px;
+         -webkit-text-size-adjust:100%; }
   .wrap { max-width:1180px; margin:0 auto; }
   a { color:var(--accent); }
+  /* any wide block scrolls inside itself rather than stretching the page */
+  .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 
   .topbar { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
   h1 { font-size:19px; font-weight:700; letter-spacing:-.01em; }
@@ -50,7 +54,7 @@
 
   label { display:block; font-size:11px; font-weight:600; text-transform:uppercase;
           letter-spacing:.05em; color:var(--text-muted); margin-bottom:3px; }
-  input, select, button, textarea { font:inherit; padding:7px 9px; border-radius:7px;
+  input, select, button, textarea { font:inherit; padding:7px 9px; border-radius:7px; max-width:100%;
           border:1px solid var(--line); background:var(--surface-0); color:var(--text-primary); }
   input:focus, select:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; }
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600;
@@ -95,6 +99,21 @@
           font-size:12px; color:var(--text-muted); margin-top:6px; padding-top:10px;
           border-top:1px solid var(--line); }
   .foot a { color:var(--accent); }
+
+  /* ------------------------------------------------------------ phones */
+  @media (max-width:640px) {
+    body { padding:11px; font-size:14px; }
+    h1 { font-size:17px; }
+    .card { padding:12px 12px; border-radius:9px; }
+    .tiles { grid-template-columns:repeat(auto-fit,minmax(112px,1fr)); gap:8px; }
+    .tile { padding:10px 11px; }
+    .tile .v { font-size:21px; }
+    .tile .k { font-size:9.5px; }
+    .tile .s { font-size:10.5px; }
+    table { min-width:520px; }          /* inside .scroll, so the page never widens */
+    .topbar { gap:8px; }
+    .toplink { padding:5px 10px; }
+  }
   {% block styles %}{% endblock %}
 </style>
 </head>

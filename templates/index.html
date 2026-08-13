@@ -8,7 +8,10 @@
 
 {% block styles %}
   form.add { display:grid; grid-template-columns:auto auto auto auto auto 1fr auto; gap:10px; align-items:end; }
+  form.add > div { min-width:0; }
+  form.add input, form.add select { width:100%; }
   @media (max-width:900px){ form.add { grid-template-columns:1fr 1fr; } }
+  @media (max-width:430px){ form.add { grid-template-columns:1fr; } }
   .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
   .dow { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
          color:var(--text-muted); text-align:center; padding-bottom:2px; }
@@ -26,6 +29,18 @@
   .legend { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted);
             margin-top:8px; justify-content:flex-end; }
   .sw { width:15px; height:11px; border-radius:3px; border:1px solid var(--line); }
+  @media (max-width:640px) {
+    .cal { gap:3px; }
+    /* aspect-ratio + min-height forces a minimum cell width; drop both on phones */
+    .day { aspect-ratio:auto; min-height:0; height:48px; padding:3px 4px; border-radius:5px; }
+    .day .n { font-size:9.5px; }
+    .day .c { font-size:12.5px; left:4px; bottom:3px; }
+    .day .mins { display:none; }
+    .dow { font-size:9px; }
+    .navbar .mo { font-size:15px; }
+    .orgbar { gap:5px; }
+    .chip { padding:5px 9px; font-size:12px; }
+  }
   .navbar { display:flex; align-items:center; justify-content:space-between; gap:10px;
             margin-bottom:10px; flex-wrap:wrap; }
   .navbar a, .chip { color:var(--accent); text-decoration:none; font-weight:600; font-size:12.5px;
@@ -118,6 +133,7 @@
 {% if org_rows|length > 1 %}
 <section class="card">
   <h2>By organization — {{ month_label }}</h2>
+  <div class="scroll">
   <table>
     <tr><th>Organization</th><th class="num">Cases</th><th class="num">Hours</th>
         <th class="num">Min/case</th><th class="num">Gross</th><th class="num">True $/hr</th></tr>
@@ -129,12 +145,14 @@
       <td class="num"><b>${{ '%.0f'|format(o.eff_rate) }}</b></td></tr>
     {% endfor %}
   </table>
+  </div>
 </section>
 {% endif %}
 
 {% if breakdown %}
 <section class="card">
   <h2>By case type — {{ month_label }}</h2>
+  <div class="scroll">
   <table>
     <tr><th>Type</th>{% if org_filter == 'all' %}<th>Org</th>{% endif %}
         <th class="num">Cases</th><th class="num">Hours</th><th class="num">Min/case</th>
@@ -150,12 +168,14 @@
     </tr>
     {% endfor %}
   </table>
+  </div>
 </section>
 {% endif %}
 
 <section class="card">
   <h2>Entries</h2>
   {% if rows %}
+  <div class="scroll">
   <table>
     <tr><th>Date</th>{% if org_filter == 'all' %}<th>Org</th>{% endif %}<th>Type</th>
         <th class="num">Cases</th><th class="num">Min</th><th class="num">Min/case</th>
@@ -178,6 +198,7 @@
     </tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<div class="empty">No entries for {{ month_label }} yet.</div>{% endif %}
 </section>
 

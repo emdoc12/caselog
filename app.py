@@ -27,7 +27,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, url_for)
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -58,11 +58,19 @@ DEFAULT_ORGS = {
 }
 
 FAVICON = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    '<rect width="64" height="64" rx="14" fill="#2a78d6"/>'
-    '<rect x="15" y="16" width="34" height="7" rx="3.5" fill="#fff"/>'
-    '<rect x="15" y="29" width="34" height="7" rx="3.5" fill="#fff" opacity=".72"/>'
-    '<rect x="15" y="42" width="21" height="7" rx="3.5" fill="#fff" opacity=".45"/>'
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
+    '<stop offset="0" stop-color="#3987e5"/><stop offset="1" stop-color="#1c5cab"/>'
+    "</linearGradient></defs>"
+    '<rect width="512" height="512" rx="112" fill="url(#g)"/>'
+    '<g fill="#fff">'
+    '<rect x="104" y="120" width="304" height="40" rx="20"/>'
+    '<rect x="104" y="204" width="234" height="40" rx="20" opacity=".78"/>'
+    '<rect x="104" y="288" width="164" height="40" rx="20" opacity=".55"/>'
+    "</g>"
+    '<circle cx="342" cy="350" r="92" fill="#1c5cab" stroke="#fff" stroke-width="26"/>'
+    '<path d="M342 300v54l38 26" fill="none" stroke="#fff" stroke-width="26" '
+    'stroke-linecap="round" stroke-linejoin="round"/>'
     "</svg>"
 )
 

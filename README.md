@@ -1,3 +1,5 @@
+<img src="docs/icon-128.png" width="72" align="right" alt="">
+
 # caselog
 
 Case and earnings tracker for physician reviewers.
