@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.3.2"
+__version__ = "1.4.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -57,23 +57,6 @@ DEFAULT_ORGS = {
         ],
     }
 }
-
-FAVICON = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
-    '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
-    '<stop offset="0" stop-color="#3987e5"/><stop offset="1" stop-color="#1c5cab"/>'
-    "</linearGradient></defs>"
-    '<rect width="512" height="512" rx="112" fill="url(#g)"/>'
-    '<g fill="#fff">'
-    '<rect x="104" y="120" width="304" height="40" rx="20"/>'
-    '<rect x="104" y="204" width="234" height="40" rx="20" opacity=".78"/>'
-    '<rect x="104" y="288" width="164" height="40" rx="20" opacity=".55"/>'
-    "</g>"
-    '<circle cx="342" cy="350" r="92" fill="#1c5cab" stroke="#fff" stroke-width="26"/>'
-    '<path d="M342 300v54l38 26" fill="none" stroke="#fff" stroke-width="26" '
-    'stroke-linecap="round" stroke-linejoin="round"/>'
-    "</svg>"
-)
 
 
 # ------------------------------------------------------------------ database
@@ -242,21 +225,32 @@ def totals(rows, pct=None):
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # In the image the icon sits beside app.py; running from a source checkout it is
 # still under docs/.
-ICON_PNG = next((p for p in (os.path.join(_HERE, "icon-180.png"),
-                             os.path.join(_HERE, "docs", "icon-180.png"))
-                 if os.path.exists(p)), None)
-
 # iOS caches home-screen icons by URL, in a system cache that survives deleting
 # the shortcut, clearing Safari and rebooting. Serving the icon from a path that
 # changes with its contents is the only reliable way to make a new icon appear.
-ICON_TAG = (hashlib.md5(open(ICON_PNG, "rb").read()).hexdigest()[:10]
-            if ICON_PNG else "none")
+def _asset(name):
+    """Icon files sit beside app.py in the image, under docs/ in a checkout."""
+    return next((p for p in (os.path.join(_HERE, name),
+                             os.path.join(_HERE, "docs", name))
+                 if os.path.exists(p)), None)
+
+
+def _tag(path):
+    if not path:
+        return "none"
+    return hashlib.md5(open(path, "rb").read()).hexdigest()[:10]
+
+
+ICON_PNG = _asset("icon-180.png")
+FAVICON_PNG = _asset("favicon-180.png")
+ICON_TAG = _tag(ICON_PNG)
 ICON_HREF = f"/apple-touch-icon-{ICON_TAG}.png"
+FAVICON_HREF = f"/favicon-{_tag(FAVICON_PNG)}.png"
 
 
 @app.context_processor
 def inject_icon():
-    return {"icon_href": ICON_HREF}
+    return {"icon_href": ICON_HREF, "favicon_href": FAVICON_HREF}
 
 
 @app.route("/apple-touch-icon.png")
@@ -274,10 +268,13 @@ def apple_touch_icon(tag=None):
                      max_age=0, conditional=True)
 
 
-@app.route("/favicon.svg")
-def favicon():
-    return Response(FAVICON, mimetype="image/svg+xml",
-                    headers={"Cache-Control": "public, max-age=86400"})
+@app.route("/favicon.png")
+@app.route("/favicon-<tag>.png")
+def favicon(tag=None):
+    if not FAVICON_PNG:
+        return Response(status=404)
+    return send_file(FAVICON_PNG, mimetype="image/png",
+                     max_age=0, conditional=True)
 
 
 @app.route("/")
@@ -586,6 +583,7 @@ def export_csv():
 @app.route("/healthz")
 def healthz():
     return {"ok": True, "version": __version__, "icon": ICON_HREF,
+            "favicon": FAVICON_HREF,
             "orgs": list(load_orgs())}
 
 
