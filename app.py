@@ -27,7 +27,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.2.2"
+__version__ = "1.3.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
