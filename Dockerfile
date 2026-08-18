@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir flask==3.0.3 gunicorn==22.0.0
 
 COPY app.py .
 COPY templates/ templates/
+COPY docs/icon-180.png ./icon-180.png
 
 VOLUME ["/data"]
 EXPOSE 8080

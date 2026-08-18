@@ -25,9 +25,9 @@ from calendar import Calendar, month_name
 from datetime import date, datetime, timedelta
 
 from flask import (Flask, Response, flash, g, redirect, render_template,
-                   request, url_for)
+                   request, send_file, url_for)
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -238,6 +238,23 @@ def totals(rows, pct=None):
 
 
 # -------------------------------------------------------------------- routes
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# In the image the icon sits beside app.py; running from a source checkout it is
+# still under docs/.
+ICON_PNG = next((p for p in (os.path.join(_HERE, "icon-180.png"),
+                             os.path.join(_HERE, "docs", "icon-180.png"))
+                 if os.path.exists(p)), None)
+
+
+@app.route("/apple-touch-icon.png")
+def apple_touch_icon():
+    """iOS home-screen icon. Safari ignores SVG here, so this must be a PNG."""
+    if not ICON_PNG:
+        return Response(status=404)
+    return send_file(ICON_PNG, mimetype="image/png",
+                     max_age=604800, conditional=True)
+
+
 @app.route("/favicon.svg")
 def favicon():
     return Response(FAVICON, mimetype="image/svg+xml",
