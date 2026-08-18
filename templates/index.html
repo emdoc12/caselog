@@ -7,6 +7,25 @@
 {% endblock %}
 
 {% block styles %}
+  .timer { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px;
+    padding:10px 12px; margin-bottom:12px; border:1px solid var(--line);
+    border-radius:9px; background:var(--surface-2); }
+  .tclock { font-variant-numeric:tabular-nums; font-size:27px; font-weight:700;
+    letter-spacing:.01em; line-height:1; min-width:104px; }
+  .tclock.run { color:var(--accent); }
+  .tstate { display:block; font-size:10.5px; font-weight:700; letter-spacing:.07em;
+    text-transform:uppercase; color:var(--text-muted); margin-top:4px; }
+  .tbtns { display:flex; flex-wrap:wrap; gap:7px; }
+  .tbtns button:disabled { opacity:.38; cursor:not-allowed; }
+  .tlaps { flex:1 1 100%; display:flex; flex-wrap:wrap; gap:6px; }
+  .lap { font-size:11.5px; font-variant-numeric:tabular-nums; padding:3px 8px;
+    border-radius:20px; border:1px solid var(--line); background:var(--surface-1);
+    color:var(--text-secondary); }
+  .lap b { color:var(--text-primary); }
+  .lap.cur { border-color:var(--accent); color:var(--accent); }
+  .tmerge { flex:1 1 100%; font-size:11.5px; color:var(--text-secondary); }
+  .tmerge input { width:auto; margin-right:6px; vertical-align:-1px; }
+  @media (max-width:430px){ .tclock { font-size:24px; } .tbtns button { flex:1 1 auto; } }
   form.add { display:grid; grid-template-columns:auto auto auto auto auto 1fr auto; gap:10px; align-items:end; }
   form.add > div { min-width:0; }
   form.add input, form.add select { width:100%; }
@@ -66,6 +85,21 @@
 
 <section class="card">
   <h2>Log work</h2>
+  <div class="timer">
+    <div><div class="tclock" id="tmDisp">00:00</div>
+      <span class="tstate" id="tmState">ready</span></div>
+    <div class="tbtns">
+      <button type="button" class="primary" id="tmGo">Start</button>
+      <button type="button" class="ghost" id="tmLap">Next case</button>
+      <button type="button" class="ghost" id="tmStop">Stop &amp; fill</button>
+      <button type="button" class="danger" id="tmReset">Reset</button>
+    </div>
+    <div class="tlaps" id="tmLaps"></div>
+    <label class="tmerge" id="tmMergeWrap" style="display:none">
+      <input type="checkbox" id="tmMerge">Log as one entry instead of one row per case
+    </label>
+  </div>
+
   <form class="add" method="post" action="/add?org={{ org_filter }}">
     <div><label for="d">Date</label>
       <input id="d" type="date" name="work_date" value="{{ today }}" required></div>
@@ -79,13 +113,15 @@
     <div><label for="q">Cases</label>
       <input id="q" type="number" name="qty" value="1" min="1" step="1" style="width:78px"></div>
     <div><label for="mi">Minutes</label>
-      <input id="mi" type="number" name="minutes" min="1" step="1" style="width:98px"
+      <input id="mi" type="number" name="minutes" min="0.1" step="0.1" style="width:98px"
              placeholder="total" required></div>
+    <input type="hidden" name="laps" id="tmField">
     <div><label for="n">Notes (no PHI)</label>
       <input id="n" type="text" name="notes" maxlength="280" placeholder="optional"></div>
     <div><button class="primary" type="submit">Add</button></div>
   </form>
-  <div class="warn">Minutes = total time for every case in this entry. Never enter patient
+  <div class="warn">Minutes = total time for every case in this entry. The timer keeps running
+    if you close the tab. Never enter patient
     identifiers, case numbers, or clinical detail.</div>
 </section>
 
@@ -237,5 +273,98 @@
     if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
   }
   syncTypes();
+
+  // ---------------------------------------------------------------- timer
+  // Wall-clock timestamps in localStorage, so a closed tab or a reload never
+  // loses a run in progress. Laps are per-case splits; the hidden `laps` field
+  // is what tells the server to write one row per case.
+  const TKEY = 'caselog.timer.v1';
+  const $ = id => document.getElementById(id);
+  let T = {run:false, at:0, acc:0, laps:[]};
+  try { Object.assign(T, JSON.parse(localStorage.getItem(TKEY) || '{}')); } catch (e) {}
+  if (!Array.isArray(T.laps)) T.laps = [];
+
+  const save = () => { try { localStorage.setItem(TKEY, JSON.stringify(T)); } catch (e) {} };
+  const cur = () => T.acc + (T.run ? Date.now() - T.at : 0);
+  const total = () => T.laps.reduce((a, b) => a + b, 0) + cur();
+  const mins = ms => Math.round(ms / 600) / 100;      // ms -> minutes, 2dp
+  const clock = ms => {
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600);
+    const b = String(Math.floor(s % 3600 / 60)).padStart(2, '0') + ':' +
+              String(s % 60).padStart(2, '0');
+    return h ? h + ':' + b : b;
+  };
+
+  function draw() {
+    const running = T.run, has = T.laps.length > 0 || cur() > 0;
+    $('tmDisp').textContent = clock(total());
+    $('tmDisp').classList.toggle('run', running);
+    // A case is "in progress" only while the clock is running or holds a
+    // part-timed case; after Stop every case has been banked into laps.
+    const n = T.laps.length + (running || cur() > 0 ? 1 : 0);
+    $('tmState').textContent = running ? 'running'
+      : (has ? (T.run === false && cur() === 0 ? 'stopped · ' : 'paused · ') +
+               n + ' case' + (n === 1 ? '' : 's')
+             : 'ready');
+    $('tmGo').textContent = running ? 'Pause' : (has ? 'Resume' : 'Start');
+    $('tmLap').disabled = !running;
+    $('tmStop').disabled = !has;
+    $('tmReset').disabled = !has;
+
+    const chips = T.laps.map((ms, i) =>
+      '<span class="lap">' + (i + 1) + ' · <b>' + mins(ms).toFixed(1) + '</b> min</span>');
+    if (running || cur() > 0)
+      chips.push('<span class="lap cur">' + (T.laps.length + 1) + ' · <b>' +
+                 mins(cur()).toFixed(1) + '</b> min</span>');
+    $('tmLaps').innerHTML = chips.join('');
+    $('tmMergeWrap').style.display = T.laps.length ? 'block' : 'none';
+  }
+
+  $('tmGo').onclick = () => {
+    if (T.run) { T.acc += Date.now() - T.at; T.run = false; }
+    else { T.at = Date.now(); T.run = true; }
+    save(); draw();
+  };
+  $('tmLap').onclick = () => {
+    if (!T.run) return;
+    const c = cur();
+    if (c > 0) T.laps.push(c);
+    T.acc = 0; T.at = Date.now();
+    save(); draw();
+  };
+  $('tmStop').onclick = () => {
+    if (T.run) { T.acc += Date.now() - T.at; T.run = false; }
+    if (T.acc > 0) { T.laps.push(T.acc); T.acc = 0; }
+    save(); draw(); fill();
+    $('mi').focus();
+  };
+  $('tmReset').onclick = () => {
+    if (T.laps.length && !confirm('Discard this timer run?')) return;
+    T = {run:false, at:0, acc:0, laps:[]};
+    save(); draw(); $('tmField').value = '';
+  };
+  $('tmMerge').onchange = fill;
+
+  // Push the run into the form. One lap, or "merge" ticked, is a single row;
+  // otherwise the hidden field carries the splits and the server writes one
+  // row per case.
+  function fill() {
+    const laps = T.laps.map(mins).filter(m => m > 0);
+    if (!laps.length) return;
+    const sum = laps.reduce((a, b) => a + b, 0);
+    const split = laps.length > 1 && !$('tmMerge').checked;
+    $('mi').value = Math.max(0.1, Math.round(sum * 10) / 10);  // never trip min=0.1
+    $('q').value = laps.length;
+    $('tmField').value = split ? JSON.stringify(laps) : '';
+  }
+
+  // Clear the saved run once it has been logged.
+  document.querySelector('form.add').addEventListener('submit', () => {
+    try { localStorage.removeItem(TKEY); } catch (e) {}
+  });
+
+  draw();
+  setInterval(() => { if (T.run) draw(); }, 500);
 </script>
 {% endblock %}

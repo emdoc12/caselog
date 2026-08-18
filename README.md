@@ -23,6 +23,8 @@ faster.
 
 ## Features
 
+- **Built-in stopwatch** with per-case laps, pause for interruptions, and a run that
+  survives closing the tab — stop it and the entry form fills itself
 - **Per-case timing** → true effective hourly rate, by organization and case type
 - **Multiple review organizations**, each with its own case types, rate periods,
   contract year, payment lag, and annual cap
@@ -151,6 +153,8 @@ start.
 
 - Pay figures are computed from the rates you configure and are **estimates**.
   Reconcile against the remittance advice you receive.
+- The timer writes **one row per case** so per-case variance is preserved. Tick
+  *log as one entry* before saving if you only know the combined total.
 - Effective hourly rate is `gross ÷ hours`, so for per-case work it rises as you
   get faster and falls when a case runs long. That's the point.
 

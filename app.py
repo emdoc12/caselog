@@ -27,7 +27,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, url_for)
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -327,6 +327,30 @@ def index():
         tax_pct=pct, pay_month=payment_month(ref, f"{ym}-01"))
 
 
+MAX_LAPS = 60
+
+
+def parse_laps(raw):
+    """Timer splits, in minutes. Returns [] for anything malformed."""
+    if not raw:
+        return []
+    try:
+        vals = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(vals, list):
+        return []
+    out = []
+    for v in vals[:MAX_LAPS]:
+        try:
+            m = round(float(v), 2)
+        except (TypeError, ValueError):
+            continue
+        if m > 0:
+            out.append(m)
+    return out
+
+
 @app.route("/add", methods=["POST"])
 def add():
     orgs = load_orgs()
@@ -341,7 +365,26 @@ def add():
     except ValueError:
         flash("Cases and minutes must be numbers.", "error")
         return redirect(url_for("index", **back))
-    if minutes <= 0 or case_type not in orgs[org].get("case_types", {}):
+    if case_type not in orgs[org].get("case_types", {}):
+        flash("Pick a case type and enter minutes greater than zero.", "error")
+        return redirect(url_for("index", **back))
+
+    # A timer run with more than one lap becomes one row per case, so per-case
+    # variance survives. Merging in the UI clears laps and falls through to the
+    # single-row path below with qty set to the case count.
+    laps = parse_laps(f.get("laps"))
+    if len(laps) > 1:
+        now = datetime.now().isoformat(timespec="seconds")
+        notes = (f.get("notes") or "").strip()[:280]
+        db().executemany(
+            "INSERT INTO entries (work_date, org, case_type, qty, minutes, notes, created_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            [(work_date, org, case_type, 1, m, notes, now) for m in laps])
+        db().commit()
+        flash(f"Logged {len(laps)} cases from the timer.", "ok")
+        return redirect(url_for("index", **back))
+
+    if minutes <= 0:
         flash("Pick a case type and enter minutes greater than zero.", "error")
         return redirect(url_for("index", **back))
 
