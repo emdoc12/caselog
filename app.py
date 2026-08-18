@@ -16,6 +16,7 @@ beneficiaries, or clinical detail.
 """
 
 import csv
+import hashlib
 import io
 import json
 import os
@@ -27,7 +28,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -245,9 +246,23 @@ ICON_PNG = next((p for p in (os.path.join(_HERE, "icon-180.png"),
                              os.path.join(_HERE, "docs", "icon-180.png"))
                  if os.path.exists(p)), None)
 
+# iOS caches home-screen icons by URL, in a system cache that survives deleting
+# the shortcut, clearing Safari and rebooting. Serving the icon from a path that
+# changes with its contents is the only reliable way to make a new icon appear.
+ICON_TAG = (hashlib.md5(open(ICON_PNG, "rb").read()).hexdigest()[:10]
+            if ICON_PNG else "none")
+ICON_HREF = f"/apple-touch-icon-{ICON_TAG}.png"
+
+
+@app.context_processor
+def inject_icon():
+    return {"icon_href": ICON_HREF}
+
 
 @app.route("/apple-touch-icon.png")
-def apple_touch_icon():
+@app.route("/apple-touch-icon-precomposed.png")
+@app.route("/apple-touch-icon-<tag>.png")
+def apple_touch_icon(tag=None):
     """iOS home-screen icon. Safari ignores SVG here, so this must be a PNG."""
     if not ICON_PNG:
         return Response(status=404)
@@ -570,7 +585,8 @@ def export_csv():
 
 @app.route("/healthz")
 def healthz():
-    return {"ok": True, "version": __version__, "orgs": list(load_orgs())}
+    return {"ok": True, "version": __version__, "icon": ICON_HREF,
+            "orgs": list(load_orgs())}
 
 
 init_db()
