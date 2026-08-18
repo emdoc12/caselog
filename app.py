@@ -27,7 +27,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -251,8 +251,12 @@ def apple_touch_icon():
     """iOS home-screen icon. Safari ignores SVG here, so this must be a PNG."""
     if not ICON_PNG:
         return Response(status=404)
+    # max_age=0 with conditional revalidation: Safari re-checks every time and
+    # gets a cheap 304 when nothing changed. A long max-age here means a
+    # changed icon stays invisible for the whole cache lifetime, and clearing
+    # it needs more than deleting the home-screen shortcut.
     return send_file(ICON_PNG, mimetype="image/png",
-                     max_age=604800, conditional=True)
+                     max_age=0, conditional=True)
 
 
 @app.route("/favicon.svg")
