@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -364,7 +364,12 @@ MAX_LAPS = 60
 
 
 def parse_laps(raw):
-    """Timer splits, in minutes. Returns [] for anything malformed."""
+    """Timer splits as [(minutes, note)].
+
+    Accepts either bare numbers or {"m": minutes, "n": note} objects, so a page
+    served before per-lap notes existed still posts successfully. Returns [] for
+    anything malformed.
+    """
     if not raw:
         return []
     try:
@@ -375,12 +380,16 @@ def parse_laps(raw):
         return []
     out = []
     for v in vals[:MAX_LAPS]:
+        note = ""
+        if isinstance(v, dict):
+            note = str(v.get("n") or "").strip()[:280]
+            v = v.get("m")
         try:
             m = round(float(v), 2)
         except (TypeError, ValueError):
             continue
         if m > 0:
-            out.append(m)
+            out.append((m, note))
     return out
 
 
@@ -408,11 +417,12 @@ def add():
     laps = parse_laps(f.get("laps"))
     if len(laps) > 1:
         now = datetime.now().isoformat(timespec="seconds")
-        notes = (f.get("notes") or "").strip()[:280]
+        shared = (f.get("notes") or "").strip()[:280]
         db().executemany(
             "INSERT INTO entries (work_date, org, case_type, qty, minutes, notes, created_at)"
             " VALUES (?,?,?,?,?,?,?)",
-            [(work_date, org, case_type, 1, m, notes, now) for m in laps])
+            [(work_date, org, case_type, 1, m, note or shared, now)
+             for m, note in laps])
         db().commit()
         flash(f"Logged {len(laps)} cases from the timer.", "ok")
         return redirect(url_for("index", **back))
@@ -429,6 +439,19 @@ def add():
          datetime.now().isoformat(timespec="seconds")))
     db().commit()
     return redirect(url_for("index", **back))
+
+
+@app.route("/note/<int:entry_id>", methods=["POST"])
+def set_note(entry_id):
+    """Edit one entry's note in place. The timer writes a row per case, so this
+    is how a batch that was logged without notes gets labelled afterwards."""
+    row = db().execute("SELECT work_date FROM entries WHERE id=?", (entry_id,)).fetchone()
+    if row:
+        db().execute("UPDATE entries SET notes=? WHERE id=?",
+                     ((request.form.get("notes") or "").strip()[:280], entry_id))
+        db().commit()
+    m = row["work_date"][:7] if row else date.today().isoformat()[:7]
+    return redirect(url_for("index", m=m, org=request.args.get("org") or "all"))
 
 
 @app.route("/delete/<int:entry_id>", methods=["POST"])

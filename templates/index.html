@@ -7,6 +7,13 @@
 {% endblock %}
 
 {% block styles %}
+  .noteform { margin:0; }
+  .noteform input { width:100%; min-width:120px; font-size:12px; padding:3px 6px;
+    border-radius:5px; border:1px solid transparent; background:transparent;
+    color:var(--text-secondary); }
+  .noteform input:hover { border-color:var(--line); }
+  .noteform input:focus { border-color:var(--accent); background:var(--surface-1);
+    color:var(--text-primary); }
   .timer { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px;
     padding:10px 12px; margin-bottom:12px; border:1px solid var(--line);
     border-radius:9px; background:var(--surface-2); }
@@ -18,11 +25,19 @@
   .tbtns { display:flex; flex-wrap:wrap; gap:7px; }
   .tbtns button:disabled { opacity:.38; cursor:not-allowed; }
   .tlaps { flex:1 1 100%; display:flex; flex-wrap:wrap; gap:6px; }
-  .lap { font-size:11.5px; font-variant-numeric:tabular-nums; padding:3px 8px;
-    border-radius:20px; border:1px solid var(--line); background:var(--surface-1);
+  .tlaps { flex-direction:column; gap:5px; }
+  .lap { display:flex; align-items:center; gap:7px; width:100%;
+    font-size:11.5px; font-variant-numeric:tabular-nums; padding:4px 6px 4px 9px;
+    border-radius:7px; border:1px solid var(--line); background:var(--surface-1);
     color:var(--text-secondary); }
   .lap b { color:var(--text-primary); }
   .lap.cur { border-color:var(--accent); color:var(--accent); }
+  .lap .n { flex:0 0 auto; min-width:58px; }
+  .lap input { flex:1 1 auto; min-width:0; font-size:11.5px; padding:3px 7px;
+    border-radius:5px; }
+  .lap .x { flex:0 0 auto; cursor:pointer; border:0; background:none; padding:0 5px;
+    font-size:15px; line-height:1; color:var(--text-muted); font-weight:700; }
+  .lap .x:hover { color:var(--danger); }
   .tmerge { flex:1 1 100%; font-size:11.5px; color:var(--text-secondary); }
   .tmerge input { width:auto; margin-right:6px; vertical-align:-1px; }
   @media (max-width:430px){ .tclock { font-size:24px; } .tbtns button { flex:1 1 auto; } }
@@ -117,7 +132,7 @@
              placeholder="total" required></div>
     <input type="hidden" name="laps" id="tmField">
     <div><label for="n">Notes (no PHI)</label>
-      <input id="n" type="text" name="notes" maxlength="280" placeholder="optional"></div>
+      <input id="n" type="text" name="notes" maxlength="280" placeholder="applies to cases with no note"></div>
     <div><button class="primary" type="submit">Add</button></div>
   </form>
   <div class="warn">Minutes = total time for every case in this entry. The timer keeps running
@@ -226,7 +241,11 @@
       <td class="num">{{ '%.0f'|format(r.min_per_case) }}</td>
       <td class="num">${{ '%.2f'|format(r.pay) }}</td>
       <td class="num">${{ '%.0f'|format(r.eff_rate) }}</td>
-      <td class="note">{{ r.notes }}</td>
+      <td class="note">
+        <form method="post" action="/note/{{ r.id }}?org={{ org_filter }}" class="noteform">
+          <input type="text" name="notes" maxlength="280" value="{{ r.notes }}"
+                 placeholder="add a note" title="Press Enter to save">
+        </form></td>
       <td style="text-align:right">
         <form method="post" action="/delete/{{ r.id }}?org={{ org_filter }}" style="display:inline"
               onsubmit="return confirm('Delete this entry?')">
@@ -276,17 +295,20 @@
 
   // ---------------------------------------------------------------- timer
   // Wall-clock timestamps in localStorage, so a closed tab or a reload never
-  // loses a run in progress. Laps are per-case splits; the hidden `laps` field
-  // is what tells the server to write one row per case.
-  const TKEY = 'caselog.timer.v1';
+  // loses a run in progress. Each lap is one case: {ms, note}. The hidden `laps`
+  // field is what tells the server to write one row per case.
+  const TKEY = 'caselog.timer.v2';
   const $ = id => document.getElementById(id);
   let T = {run:false, at:0, acc:0, laps:[]};
   try { Object.assign(T, JSON.parse(localStorage.getItem(TKEY) || '{}')); } catch (e) {}
   if (!Array.isArray(T.laps)) T.laps = [];
+  // tolerate a run started before laps carried notes
+  T.laps = T.laps.map(l => (typeof l === 'number' ? {ms:l, note:''} : l))
+                 .filter(l => l && typeof l.ms === 'number');
 
   const save = () => { try { localStorage.setItem(TKEY, JSON.stringify(T)); } catch (e) {} };
   const cur = () => T.acc + (T.run ? Date.now() - T.at : 0);
-  const total = () => T.laps.reduce((a, b) => a + b, 0) + cur();
+  const total = () => T.laps.reduce((a, l) => a + l.ms, 0) + cur();
   const mins = ms => Math.round(ms / 600) / 100;      // ms -> minutes, 2dp
   const clock = ms => {
     const s = Math.floor(ms / 1000);
@@ -295,16 +317,16 @@
               String(s % 60).padStart(2, '0');
     return h ? h + ':' + b : b;
   };
+  const esc = t => (t || '').replace(/[&<>"]/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
   function draw() {
     const running = T.run, has = T.laps.length > 0 || cur() > 0;
     $('tmDisp').textContent = clock(total());
     $('tmDisp').classList.toggle('run', running);
-    // A case is "in progress" only while the clock is running or holds a
-    // part-timed case; after Stop every case has been banked into laps.
     const n = T.laps.length + (running || cur() > 0 ? 1 : 0);
     $('tmState').textContent = running ? 'running'
-      : (has ? (T.run === false && cur() === 0 ? 'stopped · ' : 'paused · ') +
+      : (has ? (!T.run && cur() === 0 ? 'stopped · ' : 'paused · ') +
                n + ' case' + (n === 1 ? '' : 's')
              : 'ready');
     $('tmGo').textContent = running ? 'Pause' : (has ? 'Resume' : 'Start');
@@ -312,14 +334,40 @@
     $('tmStop').disabled = !has;
     $('tmReset').disabled = !has;
 
-    const chips = T.laps.map((ms, i) =>
-      '<span class="lap">' + (i + 1) + ' · <b>' + mins(ms).toFixed(1) + '</b> min</span>');
+    const rows = T.laps.map((l, i) =>
+      '<div class="lap"><span class="n">' + (i + 1) + ' · <b>' +
+      mins(l.ms).toFixed(1) + '</b> min</span>' +
+      '<input type="text" maxlength="280" data-lap="' + i +
+      '" placeholder="note for this case (no PHI)" value="' + esc(l.note) + '">' +
+      '<button type="button" class="x" data-del="' + i + '" title="Remove">&times;</button></div>');
     if (running || cur() > 0)
-      chips.push('<span class="lap cur">' + (T.laps.length + 1) + ' · <b>' +
-                 mins(cur()).toFixed(1) + '</b> min</span>');
-    $('tmLaps').innerHTML = chips.join('');
+      rows.push('<div class="lap cur"><span class="n">' + (T.laps.length + 1) +
+                ' · <b>' + mins(cur()).toFixed(1) + '</b> min</span>' +
+                '<input type="text" disabled placeholder="in progress"></div>');
+    const host = $('tmLaps');
+    // Don't blow away an input the user is typing in.
+    if (document.activeElement && document.activeElement.dataset &&
+        document.activeElement.dataset.lap !== undefined) {
+      const live = host.querySelector('.lap.cur b');
+      if (live) live.textContent = mins(cur()).toFixed(1);
+    } else {
+      host.innerHTML = rows.join('');
+    }
     $('tmMergeWrap').style.display = T.laps.length ? 'block' : 'none';
   }
+
+  $('tmLaps').addEventListener('input', e => {
+    const i = e.target.dataset.lap;
+    if (i === undefined) return;
+    T.laps[i].note = e.target.value;
+    save(); fill();
+  });
+  $('tmLaps').addEventListener('click', e => {
+    const i = e.target.dataset.del;
+    if (i === undefined) return;
+    T.laps.splice(i, 1);
+    save(); draw(); fill();
+  });
 
   $('tmGo').onclick = () => {
     if (T.run) { T.acc += Date.now() - T.at; T.run = false; }
@@ -329,15 +377,14 @@
   $('tmLap').onclick = () => {
     if (!T.run) return;
     const c = cur();
-    if (c > 0) T.laps.push(c);
+    if (c > 0) T.laps.push({ms:c, note:''});
     T.acc = 0; T.at = Date.now();
     save(); draw();
   };
   $('tmStop').onclick = () => {
     if (T.run) { T.acc += Date.now() - T.at; T.run = false; }
-    if (T.acc > 0) { T.laps.push(T.acc); T.acc = 0; }
+    if (T.acc > 0) { T.laps.push({ms:T.acc, note:''}); T.acc = 0; }
     save(); draw(); fill();
-    $('mi').focus();
   };
   $('tmReset').onclick = () => {
     if (T.laps.length && !confirm('Discard this timer run?')) return;
@@ -347,12 +394,12 @@
   $('tmMerge').onchange = fill;
 
   // Push the run into the form. One lap, or "merge" ticked, is a single row;
-  // otherwise the hidden field carries the splits and the server writes one
-  // row per case.
+  // otherwise the hidden field carries each case's minutes and its own note.
   function fill() {
-    const laps = T.laps.map(mins).filter(m => m > 0);
+    const laps = T.laps.map(l => ({m: mins(l.ms), n: (l.note || '').trim()}))
+                       .filter(l => l.m > 0);
     if (!laps.length) return;
-    const sum = laps.reduce((a, b) => a + b, 0);
+    const sum = laps.reduce((a, l) => a + l.m, 0);
     const split = laps.length > 1 && !$('tmMerge').checked;
     $('mi').value = Math.max(0.1, Math.round(sum * 10) / 10);  // never trip min=0.1
     $('q').value = laps.length;
