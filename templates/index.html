@@ -7,13 +7,27 @@
 {% endblock %}
 
 {% block styles %}
-  .noteform { margin:0; }
-  .noteform input { width:100%; min-width:120px; font-size:12px; padding:3px 6px;
+  .day.has { cursor:pointer; }
+  .day.has:hover { outline:2px solid var(--accent); outline-offset:-2px; }
+  .day.sel { outline:2px solid var(--accent); outline-offset:-2px; }
+  .daypanel { margin-top:12px; padding:12px 13px; border:1px solid var(--line);
+    border-radius:9px; background:var(--surface-2); }
+  .dayhead { display:flex; align-items:center; justify-content:space-between; gap:12px;
+    margin-bottom:10px; }
+  .dayhead h2 { margin:0; }
+  .noteform { margin:0; display:flex; align-items:center; gap:4px; }
+  .noteform input { width:100%; min-width:110px; font-size:12px; padding:3px 6px;
     border-radius:5px; border:1px solid transparent; background:transparent;
     color:var(--text-secondary); }
   .noteform input:hover { border-color:var(--line); }
   .noteform input:focus { border-color:var(--accent); background:var(--surface-1);
     color:var(--text-primary); }
+  .noteform .ok { flex:0 0 auto; cursor:pointer; border:1px solid transparent;
+    background:none; color:var(--text-muted); font-size:13px; line-height:1;
+    padding:3px 6px; border-radius:5px; font-weight:700; }
+  .noteform .ok:hover { color:var(--accent); border-color:var(--line); }
+  .noteform.dirty .ok { color:var(--accent); border-color:var(--accent); }
+  .noteform.saved .ok { color:var(--good); border-color:transparent; }
   .timer { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px;
     padding:10px 12px; margin-bottom:12px; border:1px solid var(--line);
     border-radius:9px; background:var(--surface-2); }
@@ -166,19 +180,34 @@
   <div class="cal">
     {% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}<div class="dow">{{ d }}</div>{% endfor %}
     {% for week in weeks %}{% for c in week %}
-      <div class="day {{ 'out' if not c.in_month }} {{ 'today' if c.today }} {{ 'l%d'|format(c.level) if c.level }}">
+      <div class="day {{ 'out' if not c.in_month }} {{ 'today' if c.today }} {{ 'l%d'|format(c.level) if c.level }} {{ 'has' if c.count }}"
+           {% if c.count %}data-date="{{ c.iso }}" role="button" tabindex="0"
+           title="{{ c.count }} case{{ '' if c.count == 1 else 's' }}"{% endif %}>
         <div class="n">{{ c.day }}</div>
         {% if c.count %}<div class="c">{{ c.count }}</div>
           <div class="mins">{{ '%.0f'|format(c.minutes) }}m</div>{% endif %}
       </div>
     {% endfor %}{% endfor %}
   </div>
+
   <div class="legend"><span>fewer</span>
     <span class="sw" style="background:var(--s100)"></span>
     <span class="sw" style="background:var(--s250)"></span>
     <span class="sw" style="background:var(--s400)"></span>
     <span class="sw" style="background:var(--s500)"></span>
     <span class="sw" style="background:var(--s650)"></span><span>more cases</span></div>
+<div class="daypanel" id="daypanel" style="display:none">
+  <div class="dayhead">
+    <h2 id="dayTitle">Day</h2>
+    <button type="button" class="ghost" id="dayClose">Close</button>
+  </div>
+  <div class="tiles" id="dayTiles"></div>
+  <div class="scroll"><table id="dayTable">
+    <thead><tr><th>Type</th><th class="num">Cases</th><th class="num">Min</th>
+      <th class="num">Pay</th><th>Notes</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</div>
 </section>
 
 {% if org_rows|length > 1 %}
@@ -242,9 +271,11 @@
       <td class="num">${{ '%.2f'|format(r.pay) }}</td>
       <td class="num">${{ '%.0f'|format(r.eff_rate) }}</td>
       <td class="note">
-        <form method="post" action="/note/{{ r.id }}?org={{ org_filter }}" class="noteform">
+        <form method="post" action="/note/{{ r.id }}?org={{ org_filter }}" class="noteform"
+              data-id="{{ r.id }}">
           <input type="text" name="notes" maxlength="280" value="{{ r.notes }}"
-                 placeholder="add a note" title="Press Enter to save">
+                 placeholder="add a note">
+          <button type="submit" class="ok" title="Save">&#10003;</button>
         </form></td>
       <td style="text-align:right">
         <form method="post" action="/delete/{{ r.id }}?org={{ org_filter }}" style="display:inline"
@@ -412,6 +443,95 @@
   });
 
   draw();
+
+  // ------------------------------------------------------------ inline notes
+  // Save without reloading: a page refresh per note would lose your place in a
+  // long entry table and only ever save one row.
+  function saveNote(form) {
+    const input = form.querySelector('input');
+    const body = new URLSearchParams({notes: input.value});
+    return fetch(form.getAttribute('action'), {
+      method: 'POST', body,
+      headers: {'X-Requested-With': 'fetch'}
+    }).then(r => {
+      if (!r.ok) throw new Error('save failed');
+      form.dataset.saved = input.value;
+      form.classList.remove('dirty');
+      form.classList.add('saved');
+      setTimeout(() => form.classList.remove('saved'), 1200);
+    }).catch(() => {
+      form.classList.add('dirty');
+      alert('Could not save that note. Check the connection and try again.');
+    });
+  }
+
+  document.querySelectorAll('.noteform').forEach(form => {
+    const input = form.querySelector('input');
+    form.dataset.saved = input.value;
+    form.addEventListener('submit', e => { e.preventDefault(); saveNote(form); });
+    input.addEventListener('input', () => {
+      form.classList.toggle('dirty', input.value !== form.dataset.saved);
+      form.classList.remove('saved');
+    });
+    // Tab or click away and it saves itself — no need to press anything.
+    input.addEventListener('blur', () => {
+      if (input.value !== form.dataset.saved) saveNote(form);
+    });
+  });
+
+  // ------------------------------------------------------- calendar drill-down
+  const DAYS = {{ day_stats | tojson }};
+  const panel = $('daypanel');
+  const money = n => '$' + n.toLocaleString(undefined, {maximumFractionDigits:0});
+
+  function showDay(iso) {
+    const d = DAYS[iso];
+    if (!d) return;
+    document.querySelectorAll('.day.sel').forEach(e => e.classList.remove('sel'));
+    const cell = document.querySelector(`.day[data-date="${iso}"]`);
+    if (cell) cell.classList.add('sel');
+
+    const [y, m, day] = iso.split('-').map(Number);
+    $('dayTitle').textContent = new Date(y, m - 1, day).toLocaleDateString(undefined,
+      {weekday:'long', month:'long', day:'numeric'});
+
+    $('dayTiles').innerHTML = [
+      ['Cases', d.cases, `${d.min_per_case.toFixed(0)} min / case`],
+      ['Time', d.hours.toFixed(1) + 'h', `${d.minutes.toFixed(0)} minutes`],
+      ['Gross', money(d.pay), ''],
+      ['True hourly', money(d.eff_rate), 'for this day']
+    ].map(([k, v, s]) =>
+      `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div>` +
+      (s ? `<div class="s">${s}</div>` : '') + '</div>').join('');
+
+    $('dayTable').tBodies[0].innerHTML = d.entries.map(e =>
+      `<tr><td>${e.label}</td><td class="num">${e.qty}</td>` +
+      `<td class="num">${e.minutes.toFixed(0)}</td>` +
+      `<td class="num">${'$' + e.pay.toFixed(2)}</td>` +
+      `<td class="note">${(e.notes || '').replace(/[&<>]/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</td></tr>`).join('');
+
+    panel.style.display = 'block';
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  document.querySelector('.cal').addEventListener('click', e => {
+    const cell = e.target.closest('.day[data-date]');
+    if (cell) showDay(cell.dataset.date);
+  });
+  document.querySelector('.cal').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const cell = e.target.closest('.day[data-date]');
+    if (cell) { e.preventDefault(); showDay(cell.dataset.date); }
+  });
+  $('dayClose').onclick = () => {
+    panel.style.display = 'none';
+    document.querySelectorAll('.day.sel').forEach(e => e.classList.remove('sel'));
+  };
+
+  // Open on today if there is anything to show.
+  const todayCell = document.querySelector('.day.today[data-date]');
+  if (todayCell) showDay(todayCell.dataset.date);
   setInterval(() => { if (T.run) draw(); }, 500);
 </script>
 {% endblock %}

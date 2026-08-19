@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.5.0"
+__version__ = "1.6.1"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -312,12 +312,27 @@ def index():
         mins_by_day[r["work_date"]] = mins_by_day.get(r["work_date"], 0) + r["minutes"]
     peak = max(by_day.values()) if by_day else 0
     weeks = [[{
-        "day": d.day, "in_month": d.month == mon, "today": d == date.today(),
+        "day": d.day, "iso": d.isoformat(),
+        "in_month": d.month == mon, "today": d == date.today(),
         "count": by_day.get(d.isoformat(), 0),
         "minutes": mins_by_day.get(d.isoformat(), 0),
         "level": (0 if not by_day.get(d.isoformat()) else
                   min(5, 1 + int(4 * (by_day[d.isoformat()] - 1) / max(peak - 1, 1)))),
     } for d in week] for week in Calendar(firstweekday=6).monthdatescalendar(year, mon)]
+
+    # Per-day figures for the calendar drill-down. Effective rate is the point:
+    # a day is only as good as pay divided by the hours it actually took.
+    day_stats = {}
+    for iso in by_day:
+        sel = [r for r in month_rows if r["work_date"] == iso]
+        t = totals(sel, pct)
+        day_stats[iso] = {
+            "cases": t["cases"], "minutes": t["minutes"], "hours": t["hours"],
+            "pay": t["pay"], "eff_rate": t["eff_rate"], "min_per_case": t["min_per_case"],
+            "entries": [{"label": r["label"], "org_label": r["org_label"],
+                         "qty": r["qty"], "minutes": r["minutes"],
+                         "pay": r["pay"], "notes": r["notes"] or ""} for r in sel],
+        }
 
     org_rows = []
     for key in orgs:
@@ -349,6 +364,7 @@ def index():
 
     return render_template(
         "index.html", version=__version__, title=get_setting("title", "caselog"),
+        day_stats=day_stats,
         ym=ym, month_label=f"{month_name[mon]} {year}",
         prev_m=(date(year, mon, 1) - timedelta(days=1)).strftime("%Y-%m"),
         next_m=(date(year, mon, 28) + timedelta(days=7)).strftime("%Y-%m"),
@@ -450,6 +466,8 @@ def set_note(entry_id):
         db().execute("UPDATE entries SET notes=? WHERE id=?",
                      ((request.form.get("notes") or "").strip()[:280], entry_id))
         db().commit()
+    if request.headers.get("X-Requested-With") == "fetch":
+        return {"ok": bool(row)}
     m = row["work_date"][:7] if row else date.today().isoformat()[:7]
     return redirect(url_for("index", m=m, org=request.args.get("org") or "all"))
 
