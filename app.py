@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.6.1"
+__version__ = "1.7.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -455,6 +455,26 @@ def add():
          datetime.now().isoformat(timespec="seconds")))
     db().commit()
     return redirect(url_for("index", **back))
+
+
+@app.route("/minutes/<int:entry_id>", methods=["POST"])
+def set_minutes(entry_id):
+    """Correct a logged time. Starting the timer late is common enough that the
+    alternative — delete and re-enter — loses the note and the ordering."""
+    row = db().execute("SELECT work_date FROM entries WHERE id=?", (entry_id,)).fetchone()
+    ok = False
+    try:
+        minutes = round(float(request.form.get("minutes") or 0), 2)
+    except (TypeError, ValueError):
+        minutes = 0
+    if row and minutes > 0:
+        db().execute("UPDATE entries SET minutes=? WHERE id=?", (minutes, entry_id))
+        db().commit()
+        ok = True
+    if request.headers.get("X-Requested-With") == "fetch":
+        return {"ok": ok}
+    m = row["work_date"][:7] if row else date.today().isoformat()[:7]
+    return redirect(url_for("index", m=m, org=request.args.get("org") or "all"))
 
 
 @app.route("/note/<int:entry_id>", methods=["POST"])
