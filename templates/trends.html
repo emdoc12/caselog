@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block page_title %}Trends · {{ title }}{% endblock %}
+
+{% block topnav %}
+  <a class="toplink" href="/">← Back to log</a>
+  <a class="toplink" href="/settings">Settings</a>
+{% endblock %}
+
+{% block styles %}
+  .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:14px; }
+  .filters select { font:inherit; font-size:12.5px; padding:5px 9px; border-radius:7px;
+                    border:1px solid var(--line); background:var(--surface-1);
+                    color:var(--text-primary); }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg a { font-size:12.5px; font-weight:600; text-decoration:none; padding:5px 11px;
+           color:var(--text-secondary); background:var(--surface-1); }
+  .seg a + a { border-left:1px solid var(--line); }
+  .seg a.on { background:var(--accent); color:#fff; }
+
+  .charts { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+  .chart { background:var(--surface-1); border:1px solid var(--line); border-radius:10px;
+           padding:13px 15px 9px; position:relative; }
+  .chart .k { font-size:10.5px; font-weight:600; letter-spacing:.07em; text-transform:uppercase;
+              color:var(--text-muted); }
+  .chart .now { font-size:23px; font-weight:700; letter-spacing:-.02em; margin-top:2px;
+                font-variant-numeric:tabular-nums; }
+  .chart .sub { font-size:11.5px; color:var(--text-secondary); margin-top:1px; }
+  .plot { margin-top:8px; height:172px; }
+  .plot svg { display:block; width:100%; height:100%; overflow:visible; }
+
+  /* Recessive by construction: hairline solid grid, 2px line, dots ringed in the
+     surface so they stay legible where they sit on the line. */
+  .gridline { stroke:var(--line); stroke-width:1; }
+  .axis-t { fill:var(--text-muted); font-size:10px; }
+  .ln { fill:none; stroke:var(--accent); stroke-width:2; stroke-linejoin:round;
+        stroke-linecap:round; }
+  .ar { fill:var(--accent); opacity:.10; }
+  .dot { fill:var(--accent); stroke:var(--surface-1); stroke-width:2; }
+  .endlabel { fill:var(--text-primary); font-size:11px; font-weight:600; }
+  .cross { stroke:var(--text-muted); stroke-width:1; opacity:.55; }
+  .hit { fill:transparent; }
+
+  .tip { position:absolute; pointer-events:none; opacity:0; transition:opacity .09s;
+         background:var(--surface-2); border:1px solid var(--line); border-radius:7px;
+         padding:6px 9px; font-size:11.5px; line-height:1.4; white-space:nowrap;
+         box-shadow:0 3px 10px rgba(0,0,0,.16); z-index:5; }
+  .tip b { font-size:13px; }
+  .tip i { color:var(--text-muted); font-style:normal; }
+
+  details.tbl { margin-top:14px; }
+  details.tbl summary { cursor:pointer; font-size:12.5px; font-weight:600;
+                        color:var(--text-secondary); }
+  .empty { background:var(--surface-1); border:1px solid var(--line); border-radius:10px;
+           padding:26px 18px; text-align:center; color:var(--text-secondary); }
+
+  @media (max-width:640px) {
+    .charts { grid-template-columns:1fr; }
+    .plot { height:158px; }
+  }
+{% endblock %}
+
+{% block content %}
+
+<form class="filters" method="get" action="/trends">
+  <select name="org" onchange="this.form.submit()">
+    <option value="all" {{ 'selected' if org_filter == 'all' }}>All organizations</option>
+    {% for key, cfg in orgs.items() %}
+      <option value="{{ key }}" {{ 'selected' if org_filter == key }}>{{ cfg.get('label', key) }}</option>
+    {% endfor %}
+  </select>
+  <select name="type" onchange="this.form.submit()">
+    <option value="all" {{ 'selected' if type_filter == 'all' }}>All case types</option>
+    {% for t in type_opts %}
+      <option value="{{ t.key }}" {{ 'selected' if type_filter == t.key }}>{{ t.label }}</option>
+    {% endfor %}
+  </select>
+  <input type="hidden" name="grain" value="{{ grain }}">
+  <span class="spacer"></span>
+  <span class="seg">
+    {% for g, lab in [('day','Day'), ('week','Week'), ('month','Month')] %}
+      <a class="{{ 'on' if grain == g }}"
+         href="/trends?org={{ org_filter }}&type={{ type_filter }}&grain={{ g }}">{{ lab }}</a>
+    {% endfor %}
+  </span>
+</form>
+
+{% if not series %}
+  <div class="empty">Nothing logged yet for this filter. Log a few cases and the trends show up here.</div>
+{% else %}
+
+<section class="charts">
+  <div class="chart" data-metric="cum_cases" data-fmt="int" data-area="1">
+    <div class="k">Cases logged</div>
+    <div class="now">{{ series[-1].cum_cases }}</div>
+    <div class="sub">running total · {{ series|length }} {{ grain }}{{ '' if series|length == 1 else 's' }} with work</div>
+    <div class="plot"></div>
+  </div>
+
+  <div class="chart" data-metric="cum_pay" data-fmt="money" data-area="1">
+    <div class="k">Revenue</div>
+    <div class="now">${{ '{:,.0f}'.format(series[-1].cum_pay) }}</div>
+    <div class="sub">running total{% if tax_pct %} · net ≈ ${{ '{:,.0f}'.format(summary.net) }}{% endif %}</div>
+    <div class="plot"></div>
+  </div>
+
+  <div class="chart" data-metric="eff_rate" data-fmt="money">
+    <div class="k">True hourly</div>
+    <div class="now">${{ '%.0f'|format(summary.eff_rate) }}</div>
+    <div class="sub">all-time average · per-{{ grain }} plotted</div>
+    <div class="plot"></div>
+  </div>
+
+  <div class="chart" data-metric="min_per_case" data-fmt="min" data-lower-better="1">
+    <div class="k">Minutes per case</div>
+    <div class="now">{{ '%.1f'|format(case_summary.min_per_case) }}</div>
+    <div class="sub">per-case work only · lower is better</div>
+    <div class="plot"></div>
+  </div>
+</section>
+
+<details class="tbl">
+  <summary>Show the numbers</summary>
+  <div class="scroll" style="margin-top:9px">
+    <table>
+      <thead><tr>
+        <th>{{ grain|capitalize }}</th><th class="num">Cases</th><th class="num">Min</th>
+        <th class="num">Min/case</th><th class="num">Pay</th><th class="num">True hourly</th>
+        <th class="num">Cases to date</th><th class="num">Revenue to date</th>
+      </tr></thead>
+      <tbody>
+        {% for p in series|reverse %}
+        <tr>
+          <td>{{ p.label }}</td>
+          <td class="num">{{ p.cases }}</td>
+          <td class="num">{{ '%.0f'|format(p.minutes) }}</td>
+          <td class="num">{{ '%.1f'|format(p.min_per_case) if p.min_per_case else '—' }}</td>
+          <td class="num">${{ '%.0f'|format(p.pay) }}</td>
+          <td class="num">${{ '%.0f'|format(p.eff_rate) }}</td>
+          <td class="num">{{ p.cum_cases }}</td>
+          <td class="num">${{ '{:,.0f}'.format(p.cum_pay) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+
+<script type="application/json" id="series-data">{{ series|tojson }}</script>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if series %}
+<script>
+(function () {
+  const DATA = JSON.parse(document.getElementById('series-data').textContent);
+  const PAD = { l: 46, r: 16, t: 14, b: 22 };
+
+  const fmt = {
+    int:   v => String(Math.round(v)),
+    money: v => '$' + Math.round(v).toLocaleString(),
+    min:   v => (Math.round(v * 10) / 10).toFixed(1),
+  };
+  // Axis ticks land on round numbers, so the reader isn't decoding 137.4.
+  function niceTicks(max) {
+    if (max <= 0) return [0, 1];
+    const raw = max / 3;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].find(m => m * mag >= raw) * mag;
+    const out = [];
+    for (let v = 0; v <= max + step * 0.001; v += step) out.push(v);
+    if (out[out.length - 1] < max) out.push(out[out.length - 1] + step);
+    return out;
+  }
+  const svgEl = (n, a) => {
+    const e = document.createElementNS('http://www.w3.org/2000/svg', n);
+    for (const k in a) e.setAttribute(k, a[k]);
+    return e;
+  };
+
+  function draw(card) {
+    const metric = card.dataset.metric;
+    const f = fmt[card.dataset.fmt];
+    const host = card.querySelector('.plot');
+    host.textContent = '';
+
+    const W = host.clientWidth || 300;
+    const H = host.clientHeight || 172;
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none' });
+    // Each chart plots only the buckets that have a value for its own metric.
+    const PTS = DATA.filter(p => p[metric] !== null && p[metric] !== undefined);
+    if (!PTS.length) { host.innerHTML = '<p class="sub">No data for this metric.</p>'; return; }
+    const vals = PTS.map(p => p[metric]);
+
+    // Zero baseline on every chart. The ranges here span 2-3x, so nothing is
+    // flattened by it, and a truncated axis would overstate every wobble.
+    const ticks = niceTicks(Math.max(...vals, 0));
+    const top = ticks[ticks.length - 1];
+    const iw = W - PAD.l - PAD.r, ih = H - PAD.t - PAD.b;
+    const X = i => PAD.l + (PTS.length === 1 ? iw / 2 : (i / (PTS.length - 1)) * iw);
+    const Y = v => PAD.t + ih - (top ? (v / top) * ih : 0);
+
+    ticks.forEach(t => {
+      svg.appendChild(svgEl('line', { class: 'gridline', x1: PAD.l, x2: W - PAD.r,
+                                      y1: Y(t), y2: Y(t) }));
+      const lb = svgEl('text', { class: 'axis-t', x: PAD.l - 7, y: Y(t) + 3.5,
+                                 'text-anchor': 'end' });
+      lb.textContent = f(t);
+      svg.appendChild(lb);
+    });
+
+    const d = PTS.map((p, i) => `${i ? 'L' : 'M'}${X(i)},${Y(p[metric])}`).join('');
+    if (card.dataset.area) {
+      svg.appendChild(svgEl('path', { class: 'ar',
+        d: `${d}L${X(PTS.length - 1)},${Y(0)}L${X(0)},${Y(0)}Z` }));
+    }
+    svg.appendChild(svgEl('path', { class: 'ln', d: d }));
+
+    // A dot per point reads as texture past ~20 points; the endpoint always shows.
+    const showAll = PTS.length <= 20;
+    PTS.forEach((p, i) => {
+      if (showAll || i === PTS.length - 1) {
+        svg.appendChild(svgEl('circle', { class: 'dot', cx: X(i), cy: Y(p[metric]), r: 4 }));
+      }
+    });
+
+    // Only the first and last x labels — anything denser collides on a phone.
+    [[0, 'start'], [PTS.length - 1, 'end']].forEach(([i, anchor]) => {
+      if (PTS.length === 1 && anchor === 'end') return;
+      const t = svgEl('text', { class: 'axis-t', x: X(i), y: H - 5, 'text-anchor':
+        PTS.length === 1 ? 'middle' : anchor });
+      t.textContent = PTS[i].label;
+      svg.appendChild(t);
+    });
+
+    // The label sits on the side the line is NOT arriving from: above when the
+    // series ends rising, below when it ends falling. Fixed placement collides
+    // with the incoming segment about half the time.
+    const n = PTS.length, last = PTS[n - 1];
+    const rising = n < 2 || last[metric] >= PTS[n - 2][metric];
+    const el = svgEl('text', { class: 'endlabel', x: X(n - 1) - 8,
+                               y: Y(last[metric]) + (rising ? -11 : 16),
+                               'text-anchor': 'end' });
+    el.textContent = f(last[metric]);
+    svg.appendChild(el);
+
+    const cross = svgEl('line', { class: 'cross', y1: PAD.t, y2: PAD.t + ih,
+                                  opacity: 0, x1: 0, x2: 0 });
+    const cdot = svgEl('circle', { class: 'dot', r: 5, opacity: 0, cx: 0, cy: 0 });
+    svg.appendChild(cross);
+    svg.appendChild(cdot);
+    svg.appendChild(svgEl('rect', { class: 'hit', x: 0, y: 0, width: W, height: H }));
+    host.appendChild(svg);
+
+    let tip = card.querySelector('.tip');
+    if (!tip) { tip = document.createElement('div'); tip.className = 'tip'; card.appendChild(tip); }
+
+    const nearest = ev => {
+      const r = svg.getBoundingClientRect();
+      const px = (ev.clientX - r.left) / r.width * W;
+      let best = 0, bd = Infinity;
+      PTS.forEach((_, i) => { const dd = Math.abs(X(i) - px); if (dd < bd) { bd = dd; best = i; } });
+      return best;
+    };
+    const show = ev => {
+      const i = nearest(ev), p = PTS[i];
+      cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i));
+      cross.setAttribute('opacity', 1);
+      cdot.setAttribute('cx', X(i)); cdot.setAttribute('cy', Y(p[metric]));
+      cdot.setAttribute('opacity', 1);
+      tip.innerHTML = `<b>${f(p[metric])}</b> <i>${p.label}</i><br>` +
+        `${p.cases} case${p.cases === 1 ? '' : 's'} · ${Math.round(p.minutes)} min · ` +
+        `$${Math.round(p.pay).toLocaleString()}`;
+      tip.style.opacity = 1;
+      const cw = card.clientWidth, tw = tip.offsetWidth;
+      tip.style.left = Math.max(6, Math.min(cw - tw - 6, X(i) / W * cw - tw / 2)) + 'px';
+      tip.style.top = (host.offsetTop + Y(p[metric]) - tip.offsetHeight - 12) + 'px';
+    };
+    const hide = () => {
+      tip.style.opacity = 0;
+      cross.setAttribute('opacity', 0);
+      cdot.setAttribute('opacity', 0);
+    };
+    svg.addEventListener('pointermove', show);
+    svg.addEventListener('pointerdown', show);
+    svg.addEventListener('pointerleave', hide);
+  }
+
+  const cards = [...document.querySelectorAll('.chart')];
+  const all = () => cards.forEach(draw);
+  all();
+  let t; addEventListener('resize', () => { clearTimeout(t); t = setTimeout(all, 120); });
+})();
+</script>
+{% endif %}
+{% endblock %}

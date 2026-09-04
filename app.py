@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -374,6 +374,95 @@ def index():
         orgs=orgs, org_filter=org_filter, default_org=ref_key,
         ref_label=ref.get("label", ""), case_rates=case_rates, hourly=hourly,
         tax_pct=pct, pay_month=payment_month(ref, f"{ym}-01"))
+
+
+# ------------------------------------------------------------------- trends
+def bucket_of(iso, grain):
+    """Bucket key for a work date. Week buckets start Monday."""
+    d = date.fromisoformat(iso)
+    if grain == "month":
+        return d.strftime("%Y-%m")
+    if grain == "week":
+        return (d - timedelta(days=d.weekday())).isoformat()
+    return iso
+
+
+def bucket_label(key, grain):
+    if grain == "month":
+        y, m = (int(x) for x in key.split("-"))
+        return f"{month_name[m][:3]} {y}"
+    d = date.fromisoformat(key)
+    return d.strftime("%b %-d")
+
+
+def build_series(rows, grain, pct):
+    """One point per non-empty bucket, in date order.
+
+    Buckets with no work are skipped rather than plotted as zero: a day off is
+    absence of data, not a day with a $0 hourly rate, and zeros would drag every
+    average line to the floor.
+    """
+    buckets = {}
+    for r in rows:
+        buckets.setdefault(bucket_of(r["work_date"], grain), []).append(r)
+    pts, cum_cases, cum_pay = [], 0, 0.0
+    for key in sorted(buckets):
+        sel = buckets[key]
+        t = totals(sel, pct)
+        cum_cases += t["cases"]
+        cum_pay += t["pay"]
+        # Minutes per case means nothing for hourly-basis work — a 2-hour quality
+        # review logged as one entry would plot as a 120-minute "case" and swamp
+        # the axis. Those buckets carry None and drop out of that chart alone.
+        per_case = [r for r in sel if r["basis"] == "case"]
+        mpc = totals(per_case, pct)["min_per_case"] if per_case else None
+        pts.append({
+            "key": key, "label": bucket_label(key, grain),
+            "cases": t["cases"], "pay": round(t["pay"], 2),
+            "minutes": round(t["minutes"], 1), "hours": round(t["hours"], 2),
+            "eff_rate": round(t["eff_rate"], 1),
+            "min_per_case": round(mpc, 1) if mpc else None,
+            "cum_cases": cum_cases, "cum_pay": round(cum_pay, 2),
+        })
+    return pts
+
+
+@app.route("/trends")
+def trends():
+    orgs = load_orgs()
+    pct = tax_pct()
+    org_filter = request.args.get("org") or "all"
+    if org_filter != "all" and org_filter not in orgs:
+        org_filter = "all"
+    grain = request.args.get("grain")
+    if grain not in ("day", "week", "month"):
+        grain = "day"
+
+    rows = enrich(orgs, db().execute(
+        "SELECT * FROM entries ORDER BY work_date, id").fetchall())
+    if org_filter != "all":
+        rows = [r for r in rows if r["org"] == org_filter]
+
+    # Case-type options depend on the org filter, so they are collected after it.
+    seen, type_opts = set(), []
+    for r in rows:
+        if r["case_type"] not in seen:
+            seen.add(r["case_type"])
+            type_opts.append({"key": r["case_type"], "label": r["label"]})
+    type_opts.sort(key=lambda t: t["label"])
+
+    type_filter = request.args.get("type") or "all"
+    if type_filter not in seen:
+        type_filter = "all"
+    if type_filter != "all":
+        rows = [r for r in rows if r["case_type"] == type_filter]
+
+    return render_template(
+        "trends.html", version=__version__, title=get_setting("title", "caselog"),
+        series=build_series(rows, grain, pct), summary=totals(rows, pct),
+        case_summary=totals([r for r in rows if r["basis"] == "case"], pct),
+        grain=grain, orgs=orgs, org_filter=org_filter,
+        type_opts=type_opts, type_filter=type_filter, tax_pct=pct)
 
 
 MAX_LAPS = 60

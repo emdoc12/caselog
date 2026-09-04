@@ -130,7 +130,8 @@
     <h1><a href="/">{{ title }}</a></h1>
     {% block subtitle %}{% endblock %}
     <span class="spacer"></span>
-    {% block topnav %}<a class="toplink" href="/settings">Settings</a>{% endblock %}
+    {% block topnav %}<a class="toplink" href="/trends">Trends</a>
+    <a class="toplink" href="/settings">Settings</a>{% endblock %}
   </div>
 
   {% with msgs = get_flashed_messages(with_categories=true) %}
