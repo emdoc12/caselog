@@ -110,6 +110,8 @@
     h1 { font-size:17px; }
     .card { padding:12px 12px; border-radius:9px; }
     .tiles { grid-template-columns:repeat(auto-fit,minmax(112px,1fr)); gap:8px; }
+    /* four all-time tiles land 3+1 under auto-fit; 2x2 reads better on a phone. */
+    .tiles.alltime { grid-template-columns:repeat(2,1fr); }
     .tile { padding:10px 11px; }
     .tile .v { font-size:21px; }
     .tile .k { font-size:9.5px; }

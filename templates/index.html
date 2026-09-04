@@ -303,7 +303,7 @@
   {% else %}<div class="empty">No entries for {{ month_label }} yet.</div>{% endif %}
 </section>
 
-<section class="tiles">
+<section class="tiles alltime">
   {% if cy %}
   <div class="tile"><div class="k">Contract yr {{ cy.label }}</div>
     <div class="v">${{ '%.0f'|format(cy.pay) }}</div>
@@ -312,12 +312,19 @@
     {% if cy.cap %}<div class="bar"><i style="width:{{ [cy.pay / cy.cap * 100, 100]|min }}%"></i></div>{% endif %}
   </div>
   {% endif %}
-  <div class="tile"><div class="k">All time{{ '' if org_filter == 'all' else ' — this org' }}</div>
+  {% set scope = '' if org_filter == 'all' else ' — this org' %}
+  <div class="tile"><div class="k">All-time cases{{ scope }}</div>
     <div class="v">{{ alltime.cases }}</div>
-    <div class="s">cases · {{ '%.0f'|format(alltime.hours) }}h · ${{ '%.0f'|format(alltime.pay) }}</div></div>
+    <div class="s">over {{ alltime.days }} day{{ '' if alltime.days == 1 else 's' }}</div></div>
+  <div class="tile hero"><div class="k">All-time revenue{{ scope }}</div>
+    <div class="v">${{ '{:,.0f}'.format(alltime.pay) }}</div>
+    <div class="s">{% if tax_pct %}net ≈ ${{ '{:,.0f}'.format(alltime.net) }}{% else %}gross, before tax{% endif %}</div></div>
   <div class="tile"><div class="k">All-time true hourly</div>
     <div class="v">${{ '%.0f'|format(alltime.eff_rate) }}</div>
-    <div class="s">{{ '%.0f'|format(alltime.min_per_case) }} min / case avg</div></div>
+    <div class="s">{{ '%.1f'|format(alltime.hours) }}h logged</div></div>
+  <div class="tile"><div class="k">All-time avg time</div>
+    <div class="v">{{ '%.1f'|format(alltime.min_per_case) }}</div>
+    <div class="s">min / case</div></div>
 </section>
 
 {% endblock %}
