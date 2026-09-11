@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.9.0"
+__version__ = "1.10.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -87,6 +87,7 @@ def init_db():
             qty        INTEGER NOT NULL DEFAULT 1,
             minutes    REAL    NOT NULL,
             notes      TEXT,
+            idx_state  TEXT    NOT NULL DEFAULT '',
             created_at TEXT    NOT NULL
         )""")
     conn.execute("""
@@ -97,6 +98,8 @@ def init_db():
     cols = {r[1] for r in conn.execute("PRAGMA table_info(entries)")}
     if "org" not in cols:
         conn.execute("ALTER TABLE entries ADD COLUMN org TEXT NOT NULL DEFAULT 'org1'")
+    if "idx_state" not in cols:
+        conn.execute("ALTER TABLE entries ADD COLUMN idx_state TEXT NOT NULL DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_date ON entries(work_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_org ON entries(org)")
 
@@ -457,12 +460,36 @@ def trends():
     if type_filter != "all":
         rows = [r for r in rows if r["case_type"] == type_filter]
 
+    # Does a blank document index actually predict a longer review? Compare the
+    # per-case rows that carry each state; rows never marked are excluded rather
+    # than lumped in, since "not checked" is absence of data, not a third state.
+    per_case = [r for r in rows if r["basis"] == "case"]
+    idx_rows = []
+    for key in ("yes", "no"):
+        sel = [r for r in per_case if r["idx_state"] == key]
+        if sel:
+            t = totals(sel, pct)
+            t.update(key=key, label=IDX_STATES[key])
+            idx_rows.append(t)
+    unmarked = sum(1 for r in per_case if r["idx_state"] not in ("yes", "no"))
+
     return render_template(
         "trends.html", version=__version__, title=get_setting("title", "caselog"),
         series=build_series(rows, grain, pct), summary=totals(rows, pct),
-        case_summary=totals([r for r in rows if r["basis"] == "case"], pct),
+        case_summary=totals(per_case, pct),
+        idx_rows=idx_rows, idx_unmarked=unmarked,
         grain=grain, orgs=orgs, org_filter=org_filter,
         type_opts=type_opts, type_filter=type_filter, tax_pct=pct)
+
+
+# Whether the case carried a populated document index ("H&P on page xx, PT notes
+# on xx"). Tracked because a blank index may predict both a long review and a
+# lack-of-information determination — worth knowing ten seconds in.
+IDX_STATES = {"": "not checked", "yes": "index populated", "no": "index blank"}
+
+
+def clean_idx(v):
+    return v if v in IDX_STATES else ""
 
 
 MAX_LAPS = 60
@@ -519,14 +546,15 @@ def add():
     # A timer run with more than one lap becomes one row per case, so per-case
     # variance survives. Merging in the UI clears laps and falls through to the
     # single-row path below with qty set to the case count.
+    idx_state = clean_idx(f.get("idx_state", ""))
     laps = parse_laps(f.get("laps"))
     if len(laps) > 1:
         now = datetime.now().isoformat(timespec="seconds")
         shared = (f.get("notes") or "").strip()[:280]
         db().executemany(
-            "INSERT INTO entries (work_date, org, case_type, qty, minutes, notes, created_at)"
-            " VALUES (?,?,?,?,?,?,?)",
-            [(work_date, org, case_type, 1, m, note or shared, now)
+            "INSERT INTO entries (work_date, org, case_type, qty, minutes, notes,"
+            " idx_state, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            [(work_date, org, case_type, 1, m, note or shared, idx_state, now)
              for m, note in laps])
         db().commit()
         flash(f"Logged {len(laps)} cases from the timer.", "ok")
@@ -537,10 +565,10 @@ def add():
         return redirect(url_for("index", **back))
 
     db().execute(
-        "INSERT INTO entries (work_date, org, case_type, qty, minutes, notes, created_at)"
-        " VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO entries (work_date, org, case_type, qty, minutes, notes,"
+        " idx_state, created_at) VALUES (?,?,?,?,?,?,?,?)",
         (work_date, org, case_type, qty, minutes,
-         (f.get("notes") or "").strip()[:280],
+         (f.get("notes") or "").strip()[:280], idx_state,
          datetime.now().isoformat(timespec="seconds")))
     db().commit()
     return redirect(url_for("index", **back))
@@ -564,6 +592,18 @@ def set_minutes(entry_id):
         return {"ok": ok}
     m = row["work_date"][:7] if row else date.today().isoformat()[:7]
     return redirect(url_for("index", m=m, org=request.args.get("org") or "all"))
+
+
+@app.route("/idx/<int:entry_id>", methods=["POST"])
+def set_idx(entry_id):
+    """Correct the index state on a logged row."""
+    db().execute("UPDATE entries SET idx_state=? WHERE id=?",
+                 (clean_idx(request.form.get("idx_state", "")), entry_id))
+    db().commit()
+    if request.headers.get("X-Requested-With") == "fetch":
+        return {"ok": True}
+    return redirect(url_for("index", m=request.args.get("m"),
+                            org=request.args.get("org") or "all"))
 
 
 @app.route("/note/<int:entry_id>", methods=["POST"])

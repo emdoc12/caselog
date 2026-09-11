@@ -47,6 +47,13 @@
   .tip b { font-size:13px; }
   .tip i { color:var(--text-muted); font-style:normal; }
 
+  .idx { margin-top:14px; background:var(--surface-1); border:1px solid var(--line);
+         border-radius:10px; padding:13px 15px; }
+  .idx h3 { font-size:10.5px; font-weight:600; letter-spacing:.07em; text-transform:uppercase;
+            color:var(--text-muted); margin-bottom:9px; }
+  .idx .verdict { font-size:12.5px; color:var(--text-secondary); margin-top:9px; }
+  .idx .verdict b { color:var(--text-primary); }
+
   details.tbl { margin-top:14px; }
   details.tbl summary { cursor:pointer; font-size:12.5px; font-weight:600;
                         color:var(--text-secondary); }
@@ -117,6 +124,46 @@
     <div class="plot"></div>
   </div>
 </section>
+
+{% if idx_rows %}
+<section class="idx">
+  <h3>Document index vs. review time</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Index</th><th class="num">Cases</th><th class="num">Min/case</th>
+        <th class="num">True hourly</th></tr></thead>
+      <tbody>
+        {% for r in idx_rows %}
+        <tr>
+          <td>{{ r.label }}</td>
+          <td class="num">{{ r.cases }}</td>
+          <td class="num">{{ '%.1f'|format(r.min_per_case) }}</td>
+          <td class="num">${{ '%.0f'|format(r.eff_rate) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if idx_rows|length == 2 %}
+    {% set pop = (idx_rows | selectattr('key', 'equalto', 'yes') | list | first) %}
+    {% set blank = (idx_rows | selectattr('key', 'equalto', 'no') | list | first) %}
+    {% set gap = blank.min_per_case - pop.min_per_case %}
+    <p class="verdict">
+      Blank-index cases run <b>{{ '%.1f'|format(gap|abs) }} min
+      {{ 'longer' if gap > 0 else 'shorter' }}</b> per case.
+      {% if pop.cases + blank.cases < 10 %}
+        Only {{ pop.cases + blank.cases }} marked cases so far — too few to mean anything yet.
+      {% endif %}
+    </p>
+  {% else %}
+    <p class="verdict">Only one state recorded so far. Mark both to compare.</p>
+  {% endif %}
+  {% if idx_unmarked %}
+    <p class="verdict">{{ idx_unmarked }} case{{ '' if idx_unmarked == 1 else 's' }} not marked —
+      excluded rather than counted as a third state.</p>
+  {% endif %}
+</section>
+{% endif %}
 
 <details class="tbl">
   <summary>Show the numbers</summary>

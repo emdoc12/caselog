@@ -15,7 +15,12 @@
   .dayhead { display:flex; align-items:center; justify-content:space-between; gap:12px;
     margin-bottom:10px; }
   .dayhead h2 { margin:0; }
-  .noteform, .minform { margin:0; display:flex; align-items:center; gap:4px; }
+  .noteform, .minform, .idxform { margin:0; display:flex; align-items:center; gap:4px; }
+  .idxform select { font:inherit; font-size:12px; padding:2px 4px; border-radius:5px;
+                    border:1px solid transparent; background:transparent;
+                    color:var(--text-secondary); }
+  .idxform select:hover { border-color:var(--line); }
+  .idxform.saved select { color:var(--good); }
   .minform input { width:62px; font-size:12px; padding:3px 5px; border-radius:5px;
     border:1px solid transparent; background:transparent; color:var(--text-secondary);
     text-align:right; font-variant-numeric:tabular-nums; }
@@ -155,6 +160,12 @@
     <div><label for="mi">Minutes</label>
       <input id="mi" type="number" name="minutes" min="0.1" step="0.1" style="width:98px"
              placeholder="total" required></div>
+    <div><label for="ix">Doc index</label>
+      <select id="ix" name="idx_state">
+        <option value="">not checked</option>
+        <option value="yes">populated</option>
+        <option value="no">blank</option>
+      </select></div>
     <input type="hidden" name="laps" id="tmField">
     <div><label for="n">Notes (no PHI)</label>
       <input id="n" type="text" name="notes" maxlength="280" placeholder="applies to cases with no note"></div>
@@ -270,7 +281,7 @@
   <table>
     <tr><th>Date</th>{% if org_filter == 'all' %}<th>Org</th>{% endif %}<th>Type</th>
         <th class="num">Cases</th><th class="num">Min</th><th class="num">Min/case</th>
-        <th class="num">Gross</th><th class="num">$/hr</th><th>Notes</th><th></th></tr>
+        <th class="num">Gross</th><th class="num">$/hr</th><th>Index</th><th>Notes</th><th></th></tr>
     {% for r in rows %}
     <tr>
       <td>{{ r.work_date[5:] }}</td>
@@ -285,6 +296,15 @@
       <td class="num">{{ '%.0f'|format(r.min_per_case) }}</td>
       <td class="num">${{ '%.2f'|format(r.pay) }}</td>
       <td class="num">${{ '%.0f'|format(r.eff_rate) }}</td>
+      <td class="note">
+        <form method="post" action="/idx/{{ r.id }}?org={{ org_filter }}" class="idxform"
+              data-id="{{ r.id }}">
+          <select name="idx_state" onchange="this.form.requestSubmit()">
+            <option value=""    {{ 'selected' if not r.idx_state }}>—</option>
+            <option value="yes" {{ 'selected' if r.idx_state == 'yes' }}>populated</option>
+            <option value="no"  {{ 'selected' if r.idx_state == 'no' }}>blank</option>
+          </select>
+        </form></td>
       <td class="note">
         <form method="post" action="/note/{{ r.id }}?org={{ org_filter }}" class="noteform"
               data-id="{{ r.id }}">
@@ -498,6 +518,24 @@
     // Tab or click away and it saves itself — no need to press anything.
     input.addEventListener('blur', () => {
       if (input.value !== form.dataset.saved) saveNote(form);
+    });
+  });
+
+  // ------------------------------------------------------ inline doc index
+  // Nothing on this page is derived from it, so save quietly and stay put.
+  document.querySelectorAll('.idxform').forEach(form => {
+    const sel = form.querySelector('select');
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'fetch' },
+        body: new FormData(form),
+      }).then(r => {
+        if (!r.ok) throw new Error(r.status);
+        form.classList.add('saved');
+        setTimeout(() => form.classList.remove('saved'), 1200);
+      }).catch(() => alert('Could not save that. Check the connection and try again.'));
     });
   });
 
