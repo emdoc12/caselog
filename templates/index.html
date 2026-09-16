@@ -16,6 +16,21 @@
     margin-bottom:10px; }
   .dayhead h2 { margin:0; }
   .noteform, .minform, .idxform { margin:0; display:flex; align-items:center; gap:4px; }
+  /* One collapsed line per past day; the newest day stays open so the entry you
+     just logged is editable without a click, and the totals stay near the top. */
+  details.daylog { border-bottom:1px solid var(--line); }
+  details.daylog:last-of-type { border-bottom:none; }
+  details.daylog > summary { cursor:pointer; list-style:none; padding:7px 2px;
+                          display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+                          font-size:12.5px; color:var(--text-secondary); }
+  details.daylog > summary::-webkit-details-marker { display:none; }
+  details.daylog > summary::before { content:"\25B8"; color:var(--text-muted); font-size:10px; }
+  details.daylog[open] > summary::before { content:"\25BE"; }
+  details.daylog > summary:hover { color:var(--text-primary); }
+  .dlabel { font-weight:650; color:var(--text-primary); min-width:88px; }
+  .dstat { font-variant-numeric:tabular-nums; }
+  .dstat.money { font-weight:600; color:var(--text-primary); }
+  details.daylog .scroll { padding-bottom:10px; }
   .idxform select { font:inherit; font-size:12px; padding:2px 4px; border-radius:5px;
                     border:1px solid transparent; background:transparent;
                     color:var(--text-secondary); }
@@ -277,49 +292,60 @@
 <section class="card">
   <h2>Entries</h2>
   {% if rows %}
-  <div class="scroll">
-  <table>
-    <tr><th>Date</th>{% if org_filter == 'all' %}<th>Org</th>{% endif %}<th>Type</th>
-        <th class="num">Cases</th><th class="num">Min</th><th class="num">Min/case</th>
-        <th class="num">Gross</th><th class="num">$/hr</th><th>Index</th><th>Notes</th><th></th></tr>
-    {% for r in rows %}
-    <tr>
-      <td>{{ r.work_date[5:] }}</td>
-      {% if org_filter == 'all' %}<td class="note">{{ r.org_label }}</td>{% endif %}
-      <td>{{ r.label }}</td>
-      <td class="num">{{ r.qty }}</td>
-      <td class="num">
-        <form method="post" action="/minutes/{{ r.id }}?org={{ org_filter }}" class="minform">
-          <input type="number" name="minutes" min="0.1" step="0.1" value="{{ '%.1f'|format(r.minutes) }}">
-          <button type="submit" class="ok" title="Save">&#10003;</button>
-        </form></td>
-      <td class="num">{{ '%.0f'|format(r.min_per_case) }}</td>
-      <td class="num">${{ '%.2f'|format(r.pay) }}</td>
-      <td class="num">${{ '%.0f'|format(r.eff_rate) }}</td>
-      <td class="note">
-        <form method="post" action="/idx/{{ r.id }}?org={{ org_filter }}" class="idxform"
-              data-id="{{ r.id }}">
-          <select name="idx_state" onchange="this.form.requestSubmit()">
-            <option value=""    {{ 'selected' if not r.idx_state }}>—</option>
-            <option value="yes" {{ 'selected' if r.idx_state == 'yes' }}>populated</option>
-            <option value="no"  {{ 'selected' if r.idx_state == 'no' }}>blank</option>
-          </select>
-        </form></td>
-      <td class="note">
-        <form method="post" action="/note/{{ r.id }}?org={{ org_filter }}" class="noteform"
-              data-id="{{ r.id }}">
-          <input type="text" name="notes" maxlength="280" value="{{ r.notes }}"
-                 placeholder="add a note">
-          <button type="submit" class="ok" title="Save">&#10003;</button>
-        </form></td>
-      <td style="text-align:right">
-        <form method="post" action="/delete/{{ r.id }}?org={{ org_filter }}" style="display:inline"
-              onsubmit="return confirm('Delete this entry?')">
-          <button class="del" title="Delete">×</button></form></td>
-    </tr>
-    {% endfor %}
-  </table>
-  </div>
+  {% for d in day_groups %}
+  <details class="daylog" {{ 'open' if loop.first }}>
+    <summary>
+      <span class="dlabel">{{ d.label }}</span>
+      <span class="dstat">{{ d.cases }} case{{ '' if d.cases == 1 else 's' }}</span>
+      <span class="dstat">{{ '%.0f'|format(d.minutes) }} min</span>
+      <span class="dstat">{{ '%.0f'|format(d.min_per_case) }}/case</span>
+      <span class="dstat money">${{ '%.0f'|format(d.pay) }}</span>
+      <span class="dstat">${{ '%.0f'|format(d.eff_rate) }}/hr</span>
+    </summary>
+    <div class="scroll">
+    <table>
+      <tr>{% if org_filter == 'all' %}<th>Org</th>{% endif %}<th>Type</th>
+          <th class="num">Cases</th><th class="num">Min</th><th class="num">Min/case</th>
+          <th class="num">Gross</th><th class="num">$/hr</th><th>Index</th><th>Notes</th><th></th></tr>
+      {% for r in d.rows %}
+      <tr>
+        {% if org_filter == 'all' %}<td class="note">{{ r.org_label }}</td>{% endif %}
+        <td>{{ r.label }}</td>
+        <td class="num">{{ r.qty }}</td>
+        <td class="num">
+          <form method="post" action="/minutes/{{ r.id }}?org={{ org_filter }}" class="minform">
+            <input type="number" name="minutes" min="0.1" step="0.1" value="{{ '%.1f'|format(r.minutes) }}">
+            <button type="submit" class="ok" title="Save">&#10003;</button>
+          </form></td>
+        <td class="num">{{ '%.0f'|format(r.min_per_case) }}</td>
+        <td class="num">${{ '%.2f'|format(r.pay) }}</td>
+        <td class="num">${{ '%.0f'|format(r.eff_rate) }}</td>
+        <td class="note">
+          <form method="post" action="/idx/{{ r.id }}?org={{ org_filter }}" class="idxform"
+                data-id="{{ r.id }}">
+            <select name="idx_state" onchange="this.form.requestSubmit()">
+              <option value=""    {{ 'selected' if not r.idx_state }}>—</option>
+              <option value="yes" {{ 'selected' if r.idx_state == 'yes' }}>populated</option>
+              <option value="no"  {{ 'selected' if r.idx_state == 'no' }}>blank</option>
+            </select>
+          </form></td>
+        <td class="note">
+          <form method="post" action="/note/{{ r.id }}?org={{ org_filter }}" class="noteform"
+                data-id="{{ r.id }}">
+            <input type="text" name="notes" maxlength="280" value="{{ r.notes }}"
+                   placeholder="add a note">
+            <button type="submit" class="ok" title="Save">&#10003;</button>
+          </form></td>
+        <td style="text-align:right">
+          <form method="post" action="/delete/{{ r.id }}?org={{ org_filter }}" style="display:inline"
+                onsubmit="return confirm('Delete this entry?')">
+            <button class="del" title="Delete">×</button></form></td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+  </details>
+  {% endfor %}
   {% else %}<div class="empty">No entries for {{ month_label }} yet.</div>{% endif %}
 </section>
 

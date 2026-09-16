@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.10.0"
+__version__ = "1.11.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -337,6 +337,17 @@ def index():
                          "pay": r["pay"], "notes": r["notes"] or ""} for r in sel],
         }
 
+    # Entries grouped by day, newest first. Everything older than the most recent
+    # day is archive — collapsing it puts the month and all-time figures back
+    # within reach instead of below a long table.
+    day_groups = []
+    for iso in sorted({r["work_date"] for r in month_rows}, reverse=True):
+        sel = [r for r in month_rows if r["work_date"] == iso]
+        t = totals(sel, pct)
+        d = date.fromisoformat(iso)
+        t.update(iso=iso, label=d.strftime("%a %b %-d"), rows=sel)
+        day_groups.append(t)
+
     org_rows = []
     for key in orgs:
         sel = [r for r in month_rows if r["org"] == key]
@@ -372,7 +383,8 @@ def index():
         prev_m=(date(year, mon, 1) - timedelta(days=1)).strftime("%Y-%m"),
         next_m=(date(year, mon, 28) + timedelta(days=7)).strftime("%Y-%m"),
         today=date.today().isoformat(),
-        rows=month_rows, m=totals(month_rows, pct), alltime=totals(all_rows, pct),
+        rows=month_rows, day_groups=day_groups,
+        m=totals(month_rows, pct), alltime=totals(all_rows, pct),
         weeks=weeks, breakdown=breakdown, org_rows=org_rows, cy=cy,
         orgs=orgs, org_filter=org_filter, default_org=ref_key,
         ref_label=ref.get("label", ""), case_rates=case_rates, hourly=hourly,
