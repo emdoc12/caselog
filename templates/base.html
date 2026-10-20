@@ -117,8 +117,13 @@
     .tile .k { font-size:9.5px; }
     .tile .s { font-size:10.5px; }
     table { min-width:520px; }          /* inside .scroll, so the page never widens */
-    .topbar { gap:8px; }
-    .toplink { padding:5px 10px; }
+    /* Title and links share row one; the rate note takes row two on its own,
+       instead of wrapping mid-phrase and shoving Settings onto a line alone. */
+    .topbar { gap:8px 10px; align-items:center; }
+    .topbar h1 { flex:1 1 auto; min-width:0; }
+    .topbar .spacer { display:none; }
+    .rate-note { order:3; flex-basis:100%; line-height:1.35; }
+    .toplink { padding:5px 10px; flex:none; }
   }
   {% block styles %}{% endblock %}
 </style>

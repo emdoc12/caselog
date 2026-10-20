@@ -182,8 +182,11 @@
         <option value="no">blank</option>
       </select></div>
     <input type="hidden" name="laps" id="tmField">
-    <div><label for="n">Notes (no PHI)</label>
-      <input id="n" type="text" name="notes" maxlength="280" placeholder="applies to cases with no note"></div>
+    <div><label for="st">Setting</label>
+      <select id="st" name="setting">
+        <option value="">—</option>
+        {% for v in settings_list %}<option value="{{ v }}">{{ v }}</option>{% endfor %}
+      </select></div>
     <div><button class="primary" type="submit">Add</button></div>
   </form>
   <div class="warn">Minutes = total time for every case in this entry. The timer keeps running
@@ -306,7 +309,7 @@
     <table>
       <tr>{% if org_filter == 'all' %}<th>Org</th>{% endif %}<th>Type</th>
           <th class="num">Cases</th><th class="num">Min</th><th class="num">Min/case</th>
-          <th class="num">Gross</th><th class="num">$/hr</th><th>Index</th><th>Notes</th><th></th></tr>
+          <th class="num">Gross</th><th class="num">$/hr</th><th>Setting</th><th>Index</th><th>Notes</th><th></th></tr>
       {% for r in d.rows %}
       <tr>
         {% if org_filter == 'all' %}<td class="note">{{ r.org_label }}</td>{% endif %}
@@ -320,6 +323,16 @@
         <td class="num">{{ '%.0f'|format(r.min_per_case) }}</td>
         <td class="num">${{ '%.2f'|format(r.pay) }}</td>
         <td class="num">${{ '%.0f'|format(r.eff_rate) }}</td>
+        <td class="note">
+          <form method="post" action="/setting/{{ r.id }}?org={{ org_filter }}" class="idxform"
+                data-id="{{ r.id }}">
+            <select name="setting" onchange="this.form.requestSubmit()">
+              <option value="" {{ 'selected' if not r.setting }}>—</option>
+              {% for v in settings_list %}
+              <option value="{{ v }}" {{ 'selected' if r.setting == v }}>{{ v }}</option>
+              {% endfor %}
+            </select>
+          </form></td>
         <td class="note">
           <form method="post" action="/idx/{{ r.id }}?org={{ org_filter }}" class="idxform"
                 data-id="{{ r.id }}">

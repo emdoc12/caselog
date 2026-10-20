@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-__version__ = "1.11.0"
+__version__ = "1.12.0"
 
 DB_PATH = os.environ.get("CASELOG_DB", "/data/caselog.db")
 
@@ -100,6 +100,9 @@ def init_db():
         conn.execute("ALTER TABLE entries ADD COLUMN org TEXT NOT NULL DEFAULT 'org1'")
     if "idx_state" not in cols:
         conn.execute("ALTER TABLE entries ADD COLUMN idx_state TEXT NOT NULL DEFAULT ''")
+    if "setting" not in cols:
+        conn.execute("ALTER TABLE entries ADD COLUMN setting TEXT NOT NULL DEFAULT ''")
+        backfill_settings(conn)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_date ON entries(work_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_org ON entries(org)")
 
@@ -377,7 +380,8 @@ def index():
     case_rates, hourly = rates_on(ref, f"{ym}-15")
 
     return render_template(
-        "index.html", version=__version__, title=get_setting("title", "caselog"),
+        "index.html", version=__version__, settings_list=SETTINGS,
+        title=get_setting("title", "caselog"),
         day_stats=day_stats,
         ym=ym, month_label=f"{month_name[mon]} {year}",
         prev_m=(date(year, mon, 1) - timedelta(days=1)).strftime("%Y-%m"),
@@ -497,6 +501,32 @@ def trends():
 # Whether the case carried a populated document index ("H&P on page xx, PT notes
 # on xx"). Tracked because a blank index may predict both a long review and a
 # lack-of-information determination — worth knowing ten seconds in.
+SETTINGS = ["SNF", "SNF Part B", "Hospital", "Acute Rehab", "Swing Bed", "LTAC", "Hospice"]
+
+
+def clean_setting(v):
+    return v if v in SETTINGS else ""
+
+
+def backfill_settings(conn):
+    """One-off: the level of care used to be typed into the notes field.
+
+    Only fills rows where setting is still blank, and leaves the note itself
+    alone — nothing is lost if a guess here is wrong. Order matters: "SNF Part B"
+    has to beat "SNF", and a rehab hospital is an Acute Rehab rather than a
+    Hospital.
+    """
+    rules = [("part b", "SNF Part B"), ("swing", "Swing Bed"), ("hospice", "Hospice"),
+             ("ltac", "LTAC"), ("rehab hospital", "Acute Rehab"),
+             ("acute rehab", "Acute Rehab"), ("snf", "SNF"), ("hospital", "Hospital")]
+    for row in conn.execute("SELECT id, notes FROM entries WHERE setting = ''").fetchall():
+        note = (row[1] or "").lower()
+        for needle, value in rules:
+            if needle in note:
+                conn.execute("UPDATE entries SET setting=? WHERE id=?", (value, row[0]))
+                break
+
+
 IDX_STATES = {"": "not checked", "yes": "index populated", "no": "index blank"}
 
 
@@ -559,14 +589,15 @@ def add():
     # variance survives. Merging in the UI clears laps and falls through to the
     # single-row path below with qty set to the case count.
     idx_state = clean_idx(f.get("idx_state", ""))
+    setting = clean_setting(f.get("setting", ""))
     laps = parse_laps(f.get("laps"))
     if len(laps) > 1:
         now = datetime.now().isoformat(timespec="seconds")
         shared = (f.get("notes") or "").strip()[:280]
         db().executemany(
             "INSERT INTO entries (work_date, org, case_type, qty, minutes, notes,"
-            " idx_state, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            [(work_date, org, case_type, 1, m, note or shared, idx_state, now)
+            " idx_state, setting, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            [(work_date, org, case_type, 1, m, note or shared, idx_state, setting, now)
              for m, note in laps])
         db().commit()
         flash(f"Logged {len(laps)} cases from the timer.", "ok")
@@ -578,9 +609,9 @@ def add():
 
     db().execute(
         "INSERT INTO entries (work_date, org, case_type, qty, minutes, notes,"
-        " idx_state, created_at) VALUES (?,?,?,?,?,?,?,?)",
+        " idx_state, setting, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
         (work_date, org, case_type, qty, minutes,
-         (f.get("notes") or "").strip()[:280], idx_state,
+         (f.get("notes") or "").strip()[:280], idx_state, setting,
          datetime.now().isoformat(timespec="seconds")))
     db().commit()
     return redirect(url_for("index", **back))
@@ -616,6 +647,17 @@ def set_idx(entry_id):
         return {"ok": True}
     return redirect(url_for("index", m=request.args.get("m"),
                             org=request.args.get("org") or "all"))
+
+
+@app.route("/setting/<int:entry_id>", methods=["POST"])
+def set_setting(entry_id):
+    db().execute("UPDATE entries SET setting=? WHERE id=?",
+                 (clean_setting(request.form.get("setting", "")), entry_id))
+    db().commit()
+    if request.headers.get("X-Requested-With") == "fetch":
+        return ("", 204)
+    return redirect(url_for("index", m=request.form.get("m", ""),
+                            org=request.form.get("org", "all")))
 
 
 @app.route("/note/<int:entry_id>", methods=["POST"])
@@ -771,10 +813,10 @@ def export_csv():
     rows = enrich(orgs, db().execute("SELECT * FROM entries ORDER BY work_date, id").fetchall())
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["date", "organization", "case_type", "basis", "cases", "minutes",
+    w.writerow(["date", "organization", "case_type", "setting", "basis", "cases", "minutes",
                 "min_per_case", "gross_pay", "effective_hourly", "expected_payment", "notes"])
     for r in rows:
-        w.writerow([r["work_date"], r["org_label"], r["label"], r["basis"], r["qty"],
+        w.writerow([r["work_date"], r["org_label"], r["label"], r["setting"], r["basis"], r["qty"],
                     round(r["minutes"], 1), round(r["min_per_case"], 1),
                     f'{r["pay"]:.2f}', f'{r["eff_rate"]:.2f}', r["pay_month"], r["notes"] or ""])
     return Response(buf.getvalue(), mimetype="text/csv",
